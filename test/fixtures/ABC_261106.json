@@ -3,11 +3,16 @@
     "id": 5913145,
     "bill_number": "ABC_261106",
     "bill_date": "2026-11-06",
+    "due_date": "2026-12-06",
+    "item_date": "2026-11-06",
     "status": "open",
     "entity": 57560,
     "entity_name": "David Silver - Rekindle",
     "vendor": 22861210,
     "vendor_name": "ABC Law Firm (VEN-0000001)",
+    "payment_term": 113409,
+    "ap_account": 1484279,
+    "currency": "USD",
     "total_amount": "32000.00",
     "lines": [
       {
@@ -17,9 +22,24 @@
         "amount": "2000.00",
         "custom_field_defaultbillingtype": "Fund",
         "tags": [
-          { "id": 1027811, "group": 46589, "name": "Legal", "is_deleted": false },
-          { "id": 1027943, "group": 46610, "name": "Pending", "is_deleted": false },
-          { "id": 1028616, "group": 46588, "name": "Fund II - Employees Only", "is_deleted": false }
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1028616,
+            "group": 46588,
+            "name": "Fund II - Employees Only",
+            "is_deleted": false
+          }
         ]
       },
       {
@@ -29,9 +49,24 @@
         "amount": "10000.00",
         "custom_field_defaultbillingtype": "Deal",
         "tags": [
-          { "id": 1027801, "group": 46588, "name": "Deal XYZ", "is_deleted": false },
-          { "id": 1027811, "group": 46589, "name": "Legal", "is_deleted": false },
-          { "id": 1027943, "group": 46610, "name": "Pending", "is_deleted": false }
+          {
+            "id": 1027801,
+            "group": 46588,
+            "name": "Deal XYZ",
+            "is_deleted": false
+          },
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          }
         ]
       },
       {
@@ -41,9 +76,24 @@
         "amount": "8000.00",
         "custom_field_defaultbillingtype": "Fund",
         "tags": [
-          { "id": 1027811, "group": 46589, "name": "Legal", "is_deleted": false },
-          { "id": 1027943, "group": 46610, "name": "Pending", "is_deleted": false },
-          { "id": 1027964, "group": 46588, "name": "Fund I", "is_deleted": false }
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027964,
+            "group": 46588,
+            "name": "Fund I",
+            "is_deleted": false
+          }
         ]
       },
       {
@@ -53,9 +103,24 @@
         "amount": "12000.00",
         "custom_field_defaultbillingtype": "Allocation",
         "tags": [
-          { "id": 1027811, "group": 46589, "name": "Legal", "is_deleted": false },
-          { "id": 1027943, "group": 46610, "name": "Pending", "is_deleted": false },
-          { "id": 1027965, "group": 46588, "name": "Fund II", "is_deleted": false }
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027965,
+            "group": 46588,
+            "name": "Fund II",
+            "is_deleted": false
+          }
         ]
       }
     ]

@@ -16,6 +16,22 @@ function lineForUpdate(line) {
   return out;
 }
 
+// Header fields sent back unchanged when Campfire needs a full PUT.
+// Only fields the bill actually has are copied.
+const HEADER = [
+  'bill_number', 'bill_date', 'due_date', 'item_date', 'entity', 'vendor',
+  'payment_term', 'ap_account', 'currency', 'exchange_rate', 'message_on_bill',
+  'mailing_address', 'terms', 'tax_rate', 'tax_behavior', 'bill_type',
+  'source', 'source_id', 'posts_opening_balance_offset',
+];
+
+export function headerForUpdate(bill) {
+  const out = {};
+  for (const k of HEADER) if (k in bill) out[k] = bill[k];
+  for (const [k, v] of Object.entries(bill)) if (k.startsWith('custom_field_')) out[k] = v;
+  return out;
+}
+
 // Returns null when nothing on this bill needs stamping.
 export function buildBillUpdate(bill, linePlans) {
   const stampsByLine = new Map(
@@ -39,5 +55,5 @@ export function buildBillUpdate(bill, linePlans) {
     return out;
   });
 
-  return { billId: bill.id, billNumber: bill.bill_number, lines, changes };
+  return { billId: bill.id, billNumber: bill.bill_number, header: headerForUpdate(bill), lines, changes };
 }

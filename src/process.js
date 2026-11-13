@@ -1,7 +1,7 @@
 // One place that runs the engine on bills and, when allowed, writes the stamps.
 import { planBills } from './engine.js';
 import { buildBillUpdate } from './writer.js';
-import { updateBillLines } from './campfire.js';
+import { updateBill } from './campfire.js';
 import { config, writeEnabled } from './config.js';
 
 export async function processBills(bills, { write = writeEnabled(), log = console.log } = {}) {
@@ -17,7 +17,7 @@ export async function processBills(bills, { write = writeEnabled(), log = consol
       continue;
     }
     try {
-      await updateBillLines(bill.id, update.lines);
+      await updateBill(update);
       results.push({ billNumber: bill.bill_number, mode: 'written', changes: update.changes });
     } catch (err) {
       results.push({ billNumber: bill.bill_number, mode: 'failed', error: err.message, changes: update.changes });

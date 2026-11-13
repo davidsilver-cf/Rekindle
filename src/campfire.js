@@ -34,7 +34,9 @@ async function request(path, params = {}, { method = 'GET', body } = {}) {
     }
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Campfire ${res.status} on ${url.pathname}: ${body.slice(0, 300)}`);
+      const err = new Error(`Campfire ${res.status} on ${url.pathname}: ${body.slice(0, 300)}`);
+      err.status = res.status;
+      throw err;
     }
     return res.json();
   }
@@ -61,8 +63,16 @@ export function getBill(id) {
   return request(`/coa/api/v1/bill/${id}`);
 }
 
-// Campfire's bill update replaces the whole line list, so callers must send
-// every line (see writer.js), not just the ones that changed.
-export function updateBillLines(id, lines) {
-  return request(`/coa/api/v1/bill/${id}`, {}, { method: 'PUT', body: { lines } });
+// Write a bill update built by writer.js. Tries a partial update (PATCH)
+// first, which leaves every header field alone. If Campfire doesn't allow
+// PATCH on bills, falls back to a full PUT carrying the bill's own header
+// values unchanged, because PUT replaces the whole bill.
+export async function updateBill(update) {
+  const path = `/coa/api/v1/bill/${update.billId}`;
+  try {
+    return await request(path, {}, { method: 'PATCH', body: { lines: update.lines } });
+  } catch (err) {
+    if (err.status !== 405) throw err;
+    return request(path, {}, { method: 'PUT', body: { ...update.header, lines: update.lines } });
+  }
 }

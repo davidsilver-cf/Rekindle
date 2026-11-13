@@ -58,3 +58,36 @@ test('webhook signature: accepts a good one, rejects tampering and stale timesta
   assert.equal(verifySignature({ secret, timestamp, signature, rawBody, now: now + 10 * 60 * 1000 }).ok, false);
   assert.equal(verifySignature({ secret: undefined, timestamp, signature, rawBody, now }).ok, false);
 });
+
+test('update carries the bill header unchanged for a full PUT', () => {
+  const update = buildBillUpdate(bills[0], planBills(bills, config).lines);
+  for (const k of ['bill_number', 'bill_date', 'due_date', 'entity', 'vendor']) {
+    assert.equal(update.header[k], bills[0][k], k);
+  }
+  assert.ok(!('lines' in update.header));
+  assert.ok(!('total_amount' in update.header));
+});
+
+test('updateBill tries PATCH first and falls back to PUT with the header on 405', async () => {
+  process.env.CAMPFIRE_API_KEY = 'test-key';
+  const { updateBill } = await import('../src/campfire.js');
+  const update = buildBillUpdate(bills[0], planBills(bills, config).lines);
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ method: opts.method, body: JSON.parse(opts.body) });
+    if (opts.method === 'PATCH') return new Response('not allowed', { status: 405 });
+    return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    await updateBill(update);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.CAMPFIRE_API_KEY;
+  }
+  assert.deepEqual(calls.map((c) => c.method), ['PATCH', 'PUT']);
+  assert.deepEqual(Object.keys(calls[0].body), ['lines']);
+  assert.equal(calls[1].body.bill_number, 'ABC_261106');
+  assert.equal(calls[1].body.due_date, '2026-12-06');
+  assert.equal(calls[1].body.lines.length, 4);
+});
