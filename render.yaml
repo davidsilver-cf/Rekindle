@@ -1,0 +1,23 @@
+# Render Blueprint: New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: rekindle
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Writing to Campfire stays off until this is changed to "true".
+      - key: REKINDLE_WRITE
+        value: "false"
+      # Secrets: Render asks for these when the Blueprint is created.
+      - key: CAMPFIRE_API_KEY
+        sync: false
+      - key: CAMPFIRE_WEBHOOK_SECRET
+        sync: false
+      # Password for /dry-run and /run; Render generates it.
+      - key: REKINDLE_ADMIN_TOKEN
+        generateValue: true

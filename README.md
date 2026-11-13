@@ -12,8 +12,8 @@ Automated billback for Campfire: unbilled expenses → allocation → invoicing.
 | Piece | State |
 |---|---|
 | Dry-run engine (stamp + allocate, nothing written) | ✅ working, tested on ABC_261106 |
-| Write stamps back to Campfire | next |
-| Webhooks (`Bill.created`, `Bill.updated`) on Render | next |
+| Web service for Render: webhooks, dry-run page, backfill | ✅ built; deploy next |
+| Write stamps back to Campfire | ✅ built, **off** until `REKINDLE_WRITE=true` |
 | Screens (queue, deals, approvals, invoices) | planned |
 | Invoice creation | planned |
 
@@ -45,3 +45,23 @@ npm run dry-run -- --bill ABC_261106
 ```
 
 The API key is only ever read from the `CAMPFIRE_API_KEY` environment variable (on Render: the service's **Environment** settings).
+
+## Deploy on Render
+
+1. Render → **New → Blueprint** → pick this repo. `render.yaml` sets up a free web service.
+2. When asked, paste the Campfire API key into `CAMPFIRE_API_KEY`. Leave `CAMPFIRE_WEBHOOK_SECRET` blank for now.
+3. Open `https://<your-service>.onrender.com/health`. It should show `"write": false`.
+4. Open `https://<your-service>.onrender.com/dry-run?token=<REKINDLE_ADMIN_TOKEN>&bill=ABC_261106`. The token is under the service's **Environment** tab.
+5. In Campfire: **Settings → Developer → Webhooks → New Webhook**, URL `https://<your-service>.onrender.com/webhooks/campfire`, topics `Bill.created` and `Bill.updated`. Copy the signing token it shows into `CAMPFIRE_WEBHOOK_SECRET` on Render.
+6. When the dry run looks right, set `REKINDLE_WRITE=true`. Rekindle then stamps lines as bills are created or edited. `POST /run?token=…` stamps all open bills at once.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /health` | Up? Writing on? |
+| `GET /dry-run?token=…[&bill=…]` | The dry-run report, live from Campfire |
+| `POST /run?token=…` | Process every open bill (writes only if `REKINDLE_WRITE=true`) |
+| `POST /webhooks/campfire` | Campfire bill events; signature-checked |
+
+Rekindle's own write fires a `Bill.updated` event; the second pass finds nothing left to stamp, so it doesn't loop. The free Render plan sleeps when idle, so the first webhook after a quiet spell can take up to a minute.
+
+**Before turning writes on:** Campfire's bill update replaces every line, so Rekindle sends all lines back with their existing values. The exact shape for writing tags and the Billing Type custom field isn't spelled out in Campfire's API docs, so the first write should be checked on the test bill.

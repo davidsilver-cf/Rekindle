@@ -9,7 +9,7 @@ function apiKey() {
   return key;
 }
 
-async function request(path, params = {}) {
+async function request(path, params = {}, { method = 'GET', body } = {}) {
   const url = new URL(path, BASE_URL);
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === null) continue;
@@ -18,7 +18,13 @@ async function request(path, params = {}) {
 
   for (let attempt = 1; attempt <= 5; attempt++) {
     const res = await fetch(url, {
-      headers: { Authorization: `Token ${apiKey()}`, Accept: 'application/json' },
+      method,
+      headers: {
+        Authorization: `Token ${apiKey()}`,
+        Accept: 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
     });
     if (res.status === 429) {
       // Campfire allows 10 requests/second per API user and says how long to wait.
@@ -49,4 +55,14 @@ export async function listBills({ status = 'open', startDate, endDate, entity, q
     if (rows.length < limit) break;
   }
   return all;
+}
+
+export function getBill(id) {
+  return request(`/coa/api/v1/bill/${id}`);
+}
+
+// Campfire's bill update replaces the whole line list, so callers must send
+// every line (see writer.js), not just the ones that changed.
+export function updateBillLines(id, lines) {
+  return request(`/coa/api/v1/bill/${id}`, {}, { method: 'PUT', body: { lines } });
 }
