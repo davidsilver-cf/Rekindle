@@ -14,8 +14,20 @@ Automated billback for Campfire: unbilled expenses → allocation → invoicing.
 | Dry-run engine (stamp + allocate, nothing written) | ✅ working, tested on ABC_261106 |
 | Web service for Render: webhooks, dry-run page, backfill | ✅ built; deploy next |
 | Write stamps back to Campfire | ✅ built, **off** until `REKINDLE_WRITE=true` |
-| Screens (queue, deals, approvals, invoices) | planned |
+| Screens: Billback queue, Deals & allocations, Approvals, Invoices | ✅ prototype, read-only; demo mode until an API key is set |
+| Database: editable setup, recorded approvals, run history | next |
 | Invoice creation | planned |
+
+## The screens
+
+Sign in at the service's address with `REKINDLE_ADMIN_TOKEN`. Without `CAMPFIRE_API_KEY` (or with `REKINDLE_DEMO=true`) the screens show the ABC_261106 test bill from the repo, marked **Demo data**; with a key they read open bills live from Campfire.
+
+| Screen | Shows | Works today |
+|---|---|---|
+| Billback queue | Pending 13190 lines, billing type, billback customer, exceptions | Yes; **Stamp now** when writing is on |
+| Deals & allocations | Each deal's billing type, customer, owners and % | Read-only (edits come with the database) |
+| Approvals | What each customer owes, share of the run, checks | Review only (recording approvals needs the database) |
+| Invoices | Draft invoice per customer with source lines | Preview only |
 
 ## How it decides
 
