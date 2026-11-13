@@ -19,7 +19,11 @@ import { planBills } from './engine.js';
 import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { config, writeEnabled } from './config.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, loginPage } from './ui.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, loginPage, readFilters } from './ui.js';
+
+const STATIC = {
+  '/static/queue.js': { file: '../public/queue.js', type: 'text/javascript; charset=utf-8' },
+};
 
 const PORT = Number(process.env.PORT || 3000);
 const BILL_TOPICS = new Set(['Bill.created', 'Bill.updated']);
@@ -58,7 +62,7 @@ function send(res, status, body, type = 'text/plain; charset=utf-8', headers = {
     'Content-Type': type,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
-    ...(type.startsWith('text/html') ? { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'" } : {}),
+    ...(type.startsWith('text/html') ? { 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'" } : {}),
     ...headers,
   });
   res.end(typeof body === 'string' ? body : JSON.stringify(body, null, 2));
@@ -123,10 +127,17 @@ async function screenContext() {
 const SCREENS = {
   '/': (ctx, url) => {
     const s = url.searchParams;
-    const flash = s.has('stamped')
-      ? { ok: Number(s.get('failed') || 0) === 0, text: `Stamped ${Number(s.get('stamped')) || 0} bill(s)${Number(s.get('failed')) ? `, ${Number(s.get('failed'))} failed (see Render logs)` : ''}.` }
-      : null;
-    return queuePage(ctx, flash);
+    const n = (k) => Number(s.get(k)) || 0;
+    let flash = null;
+    if (s.has('stamped')) {
+      flash = {
+        ok: n('failed') === 0,
+        text: `Stamped ${n('lines')} line${n('lines') === 1 ? '' : 's'} on ${n('stamped')} bill${n('stamped') === 1 ? '' : 's'}${n('failed') ? `; ${n('failed')} bill${n('failed') === 1 ? '' : 's'} failed (see Render logs)` : ''}.`,
+      };
+    } else if (s.has('nothing')) {
+      flash = { ok: false, text: 'Nothing selected to stamp.' };
+    }
+    return queuePage(ctx, flash, readFilters(s));
   },
   '/deals': (ctx, url) => dealsPage(ctx, url.searchParams.get('deal')),
   '/approvals': (ctx) => approvalsPage(ctx),
@@ -138,6 +149,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
       return send(res, 200, { ok: true, write: writeEnabled(), demo: demoMode() }, 'application/json');
+    }
+
+    if (req.method === 'GET' && STATIC[url.pathname]) {
+      const { file, type } = STATIC[url.pathname];
+      return send(res, 200, await readFile(new URL(file, import.meta.url), 'utf8'), type, { 'Cache-Control': 'public, max-age=300' });
     }
 
     if (req.method === 'POST' && url.pathname === '/webhooks/campfire') {
@@ -162,9 +178,16 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/run-now') {
       if (!adminOk(url, req)) return redirect(res, '/login');
       if (demoMode() || !writeEnabled()) return redirect(res, '/');
-      const { results } = await processBills(await loadBills());
+      const form = new URLSearchParams(await readBody(req));
+      let lineIds = null; // null = every line that needs stamping
+      if (form.get('scope') !== 'all') {
+        lineIds = new Set(form.getAll('line').map(Number).filter(Number.isInteger));
+        if (!lineIds.size) return redirect(res, '/?nothing=1');
+      }
+      const { results } = await processBills(await loadBills(), { lineIds });
       const failed = results.filter((r) => r.mode === 'failed').length;
-      return redirect(res, `/?stamped=${results.length - failed}&failed=${failed}`);
+      const lines = results.filter((r) => r.mode === 'written').reduce((s, r) => s + new Set(r.changes.map((c) => c.lineId)).size, 0);
+      return redirect(res, `/?stamped=${results.length - failed}&lines=${lines}&failed=${failed}`);
     }
 
     if (url.pathname === '/dry-run' || url.pathname === '/run') {

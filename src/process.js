@@ -4,12 +4,15 @@ import { buildBillUpdate } from './writer.js';
 import { updateBill } from './campfire.js';
 import { config, writeEnabled } from './config.js';
 
-export async function processBills(bills, { write = writeEnabled(), log = console.log } = {}) {
+// lineIds (a Set of line ids) limits stamping to those lines; other lines on
+// the same bill are sent back unchanged. Omit it to stamp everything pending.
+export async function processBills(bills, { write = writeEnabled(), log = console.log, lineIds = null } = {}) {
   const plan = planBills(bills, config);
   const results = [];
+  const chosen = lineIds ? plan.lines.filter((l) => lineIds.has(l.lineId)) : plan.lines;
 
   for (const bill of bills) {
-    const update = buildBillUpdate(bill, plan.lines);
+    const update = buildBillUpdate(bill, chosen);
     if (!update) continue;
 
     if (!write) {

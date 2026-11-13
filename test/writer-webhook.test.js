@@ -91,3 +91,28 @@ test('updateBill tries PATCH first and falls back to PUT with the header on 405'
   assert.equal(calls[1].body.due_date, '2026-12-06');
   assert.equal(calls[1].body.lines.length, 4);
 });
+
+test('stamping selected lines only changes those lines', async () => {
+  process.env.CAMPFIRE_API_KEY = 'test-key';
+  process.env.REKINDLE_WRITE = 'true';
+  const { processBills } = await import('../src/process.js');
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    sent.push(JSON.parse(opts.body));
+    return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const { results } = await processBills(structuredClone(bills), { lineIds: new Set([9190922]), log: () => {} });
+    assert.equal(results.length, 1);
+    assert.deepEqual(results[0].changes.map((c) => c.lineId), [9190922]);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.CAMPFIRE_API_KEY;
+    delete process.env.REKINDLE_WRITE;
+  }
+  const tags = (id) => sent[0].lines.find((l) => l.id === id).tags.map((t) => t.id);
+  assert.deepEqual(tags(9190922), [1027811, 1027943, 1027964, 1027953]); // Fund I tag added
+  assert.deepEqual(tags(9190921), [1027801, 1027811, 1027943]); // Deal XYZ untouched
+  assert.deepEqual(tags(9337492), [1027811, 1027943, 1028616]); // Employees Only untouched
+});

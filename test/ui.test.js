@@ -32,3 +32,26 @@ test('exceptions show on the queue', () => {
   bad[0].lines[1].tags = bad[0].lines[1].tags.filter((t) => t.group !== 46588);
   assert.match(queuePage(ctx(bad)), /No Deals tag on line/);
 });
+
+import { filterLines, lineState, readFilters } from '../src/ui.js';
+
+test('line states and filters', () => {
+  const plan = planBills(bills, config);
+  assert.deepEqual(plan.lines.map(lineState), ['to_stamp', 'to_stamp', 'to_stamp', 'split']);
+  const f = (qs) => filterLines(plan.lines, readFilters(new URLSearchParams(qs))).map((l) => l.lineId);
+  assert.deepEqual(f(''), [9337492, 9190921, 9190922, 9190923]);
+  assert.deepEqual(f('state=split'), [9190923]);
+  assert.deepEqual(f('deal=Fund I'), [9190922]);
+  assert.deepEqual(f('type=Fund'), [9337492, 9190922]);
+  assert.deepEqual(f('q=employees'), [9337492]);
+  assert.deepEqual(f('q=9190921'), [9190921]);
+  assert.deepEqual(f('bill=NOPE'), []);
+});
+
+test('queue shows checkboxes only for lines that can be stamped, and only when writing is on', () => {
+  const live = { ...ctx(), demo: false, write: true };
+  const page = queuePage(live);
+  assert.equal((page.match(/class="pick"/g) || []).length, 3);
+  assert.match(page, /id="select-all"/);
+  assert.equal((queuePage(ctx()).match(/class="pick"/g) || []).length, 0); // demo: no selection
+});

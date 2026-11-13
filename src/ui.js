@@ -61,6 +61,17 @@ tfoot td{font-weight:700;border-bottom:none}
 .split>.wide{flex:999 1 480px;min-width:0}.split>.side{flex:1 1 280px;max-width:380px}
 .pad{padding:16px 20px;display:flex;flex-direction:column;gap:10px;font-size:13px}
 .ok{color:var(--good)}.no{color:#991B1B}
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:14px 16px;border-bottom:1px solid var(--line)}
+.filter{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--quiet);min-width:140px}
+.filter.grow{flex:1 1 220px}
+.filter input,.filter select{min-height:40px;padding:0 10px;border:1px solid #D6D1C9;border-radius:8px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff}
+.filter-actions{display:flex;gap:8px}
+.selbar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:10px 16px;font-size:13px;color:var(--quiet);border-bottom:1px solid var(--line)}
+#sel-count{color:var(--accent-dark);font-weight:600}
+td.check,th.check{width:36px;padding-right:0}
+td.check input,th.check input{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+td.check input:disabled{cursor:not-allowed;opacity:.35}
+a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:#D6D1C9;box-shadow:0 1px 0 #D6D1C9}
 .dealrow{display:block;padding:12px 14px;border-bottom:1px solid var(--soft);text-decoration:none;color:var(--ink)}
 .dealrow.on{background:var(--accent-tint)}
 .dealrow b{display:block;font-size:14px}.dealrow span{font-size:12px;color:var(--quiet)}
@@ -68,7 +79,7 @@ tfoot td{font-weight:700;border-bottom:none}
 
 const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C2410C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7.5z"></path><path d="M6 21h12"></path></svg>`;
 
-export function layout({ active, title, body, ctx }) {
+export function layout({ active, title, body, ctx, scripts = [] }) {
   const items = [
     ['/', 'queue', 'Billback queue', ctx.plan.lines.length],
     ['/deals', 'deals', 'Deals &amp; allocations', null],
@@ -86,7 +97,7 @@ export function layout({ active, title, body, ctx }) {
 <title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell">
 <nav aria-label="Rekindle"><div class="brand">${FLAME}<div><b>Rekindle</b><small>Billback for Campfire</small></div></div>${nav}
 <div class="foot"><span>${ctx.demo ? 'Demo mode' : 'Live from Campfire'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span></div></nav>
-<main>${source}${body}</main></div></body></html>`;
+<main>${source}${body}</main></div>${scripts.map((src) => `<script src="${src}" defer></script>`).join('')}</body></html>`;
 }
 
 function customerCell(l) {
@@ -95,44 +106,102 @@ function customerCell(l) {
   if (l.billingType === 'Allocation') {
     return `<a href="/deals?deal=${encodeURIComponent(l.dealsTag)}">Split ${l.billTo.map((b) => b.percent).join(' / ')}</a>`;
   }
-  const name = l.billTo[0]?.customer.name;
-  const pending = l.stamps.some((s) => s.field === 'billbackCustomerTag');
-  return `${esc(name)} <span class="small" style="color:${pending ? 'var(--warn)' : 'var(--good)'};font-weight:600">· ${pending ? 'to stamp' : 'stamped'}</span>`;
+  return esc(l.billTo[0]?.customer.name);
 }
 
-export function queuePage(ctx, flash) {
+// Where a line stands, for filters and the status column.
+export function lineState(l) {
+  if (l.exception) return 'exception';
+  if (l.stamps.length) return 'to_stamp';
+  if (l.billingType === 'Allocation') return 'split';
+  if (l.billingType === 'Expense') return 'expense';
+  return 'stamped';
+}
+const STATES = { to_stamp: 'To stamp', stamped: 'Stamped', split: 'Split at invoicing', expense: 'Expense', exception: 'Exception' };
+const STATE_STYLE = {
+  to_stamp: 'background:var(--warn-tint);color:var(--warn)',
+  stamped: 'background:var(--good-tint);color:var(--good)',
+  split: 'background:var(--accent-tint);color:var(--accent-dark)',
+  expense: 'background:#F1EEE9;color:#3F3B36',
+  exception: 'background:#FDECEC;color:#991B1B',
+};
+
+// Filters come from the query string: q, bill, deal, type, state.
+export function readFilters(params) {
+  const get = (k) => (params.get(k) || '').trim().slice(0, 200);
+  return { q: get('q'), bill: get('bill'), deal: get('deal'), type: get('type'), state: get('state') };
+}
+
+export function filterLines(lines, f) {
+  const q = f.q.toLowerCase();
+  return lines.filter((l) =>
+    (!f.bill || l.billNumber === f.bill) &&
+    (!f.deal || l.dealsTag === f.deal) &&
+    (!f.type || l.billingType === f.type) &&
+    (!f.state || lineState(l) === f.state) &&
+    (!q || [l.billNumber, l.description, l.dealsTag, l.lineId, l.rechargeCategory].some((v) => String(v ?? '').toLowerCase().includes(q))));
+}
+
+const select = (name, label, current, options) =>
+  `<label class="filter"><span>${label}</span><select name="${name}"><option value="">All</option>${options
+    .map(([v, t]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(t)}</option>`)
+    .join('')}</select></label>`;
+
+const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort();
+
+export function queuePage(ctx, flash, filters = readFilters(new URLSearchParams())) {
   const { plan } = ctx;
   const exceptions = plan.lines.filter((l) => l.exception);
-  const toStamp = plan.lines.filter((l) => !l.exception && l.stamps.length);
-  const alloc = plan.lines.filter((l) => !l.exception && l.billingType === 'Allocation').length;
+  const toStamp = plan.lines.filter((l) => lineState(l) === 'to_stamp');
+  const alloc = plan.lines.filter((l) => lineState(l) === 'split').length;
+  const shown = filterLines(plan.lines, filters);
+  const shownCents = shown.reduce((s, l) => s + l.amountCents, 0);
+  const canStamp = ctx.write && !ctx.demo;
+  const active = Object.values(filters).some(Boolean);
 
-  const rows = plan.lines
-    .map(
-      (l) => `<tr><td>${esc(l.billNumber)}</td><td class="muted">${esc(l.lineId)}</td><td class="wrap">${esc(l.description)}</td><td class="wrap">${esc(l.dealsTag ?? '—')}</td>
-<td>${typePill(l.billingType)}${l.stamps.some((s) => s.field !== 'billbackCustomerTag') ? ' <span class="small" style="color:var(--warn)">· to fill</span>' : ''}</td>
-<td>${customerCell(l)}</td><td class="num">${usd(l.amountCents)}</td></tr>`,
-    )
+  const rows = shown
+    .map((l) => {
+      const st = lineState(l);
+      const box = st === 'to_stamp' && canStamp
+        ? `<input type="checkbox" name="line" value="${esc(l.lineId)}" form="stamp-form" class="pick" aria-label="Select line ${esc(l.lineId)}">`
+        : `<input type="checkbox" disabled aria-label="Line ${esc(l.lineId)} cannot be stamped">`;
+      return `<tr><td class="check">${box}</td><td>${esc(l.billNumber)}</td><td class="muted">${esc(l.lineId)}</td><td class="wrap">${esc(l.description)}</td><td class="wrap">${esc(l.dealsTag ?? '—')}</td>
+<td>${typePill(l.billingType)}</td><td>${customerCell(l)}</td><td>${pill(STATES[st], STATE_STYLE[st])}</td><td class="num">${usd(l.amountCents)}</td></tr>`;
+    })
     .join('');
 
   const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}">${esc(flash.text)}</div>` : '';
-  const runBtn = ctx.write && !ctx.demo
-    ? `<form method="post" action="/run-now"><button class="btn" type="submit">Stamp ${toStamp.length} line${toStamp.length === 1 ? '' : 's'} now</button></form>`
-    : `<button class="btn" type="button" disabled title="${ctx.demo ? 'Demo mode' : 'Turn on REKINDLE_WRITE to stamp'}">Stamp now (${ctx.demo ? 'demo' : 'writing off'})</button>`;
+  const why = ctx.demo ? 'demo' : 'writing off';
+  const stampButtons = canStamp
+    ? `<form id="stamp-form" method="post" action="/run-now" style="display:flex;gap:8px;flex-wrap:wrap">
+<button class="btn" type="submit" name="scope" value="selected" id="stamp-selected">Stamp selected</button>
+<button class="btn" type="submit" name="scope" value="all"${toStamp.length ? '' : ' disabled'}>Stamp all ${toStamp.length}</button></form>`
+    : `<button class="btn" type="button" disabled title="${ctx.demo ? 'Demo mode' : 'Turn on REKINDLE_WRITE to stamp'}">Stamp (${why})</button>`;
+
+  const filterBar = `<form class="filters" method="get" action="/" role="search">
+<label class="filter grow"><span>Search</span><input type="search" name="q" value="${esc(filters.q)}" placeholder="Bill, description, deal, line"></label>
+${select('state', 'Status', filters.state, Object.entries(STATES))}
+${select('type', 'Billing type', filters.type, uniq(plan.lines.map((l) => l.billingType)).map((t) => [t, t]))}
+${select('deal', 'Deal', filters.deal, uniq(plan.lines.map((l) => l.dealsTag)).map((t) => [t, t]))}
+${select('bill', 'Bill', filters.bill, uniq(plan.lines.map((l) => l.billNumber)).map((t) => [t, t]))}
+<div class="filter-actions"><button class="btn" type="submit">Apply</button>${active ? '<a class="btn" href="/">Clear</a>' : ''}</div></form>`;
 
   return layout({
-    active: 'queue', title: 'Billback queue', ctx,
+    active: 'queue', title: 'Billback queue', ctx, scripts: ['/static/queue.js'],
     body: `${flashHtml}<div class="head"><div><h1>Billback queue</h1><p class="sub">Pending lines on ${esc(ctx.config.unbilledAccountNumber)} Unbilled Receivable, stamped from each line's Deals tag.</p></div>
-<div style="display:flex;gap:8px;flex-wrap:wrap">${runBtn}<a class="btn primary" href="/approvals">Review for approval</a></div></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${stampButtons}<a class="btn primary" href="/approvals">Review for approval</a></div></div>
 <div class="grid4">
-<div class="card kpi"><span>Pending lines</span><strong>${usd(plan.totals.pendingCents)}</strong><span>${plan.lines.length} lines</span></div>
-<div class="card kpi"><span>To stamp</span><strong>${toStamp.length}</strong><span>of ${plan.lines.length} lines · ${alloc} split at invoicing</span></div>
-<div class="card kpi"><span>Billback customers</span><strong>${plan.customers.length}</strong><span>after splits</span></div>
-<div class="card kpi"><span>Exceptions</span><strong style="color:${exceptions.length ? '#991B1B' : 'var(--good)'}">${exceptions.length}</strong><span>${usd(plan.totals.exceptionCents)}</span></div>
+<a class="card kpi link" href="/"><span>Pending lines</span><strong>${usd(plan.totals.pendingCents)}</strong><span>${plan.lines.length} lines</span></a>
+<a class="card kpi link" href="/?state=to_stamp"><span>To stamp</span><strong>${toStamp.length}</strong><span>of ${plan.lines.length} lines · ${alloc} split at invoicing</span></a>
+<a class="card kpi link" href="/approvals"><span>Billback customers</span><strong>${plan.customers.length}</strong><span>after splits</span></a>
+<a class="card kpi link" href="/?state=exception"><span>Exceptions</span><strong style="color:${exceptions.length ? '#991B1B' : 'var(--good)'}">${exceptions.length}</strong><span>${usd(plan.totals.exceptionCents)}</span></a>
 </div>
-<div class="card"><div class="scroll"><table><thead><tr><th>Bill</th><th>Line</th><th>Description</th><th>Deals tag</th><th>Billing type</th><th>Billback customer</th><th class="num">Amount</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="7" class="muted">No pending lines.</td></tr>'}</tbody>
-<tfoot><tr><td colspan="6">Total</td><td class="num">${usd(plan.totals.pendingCents)}</td></tr></tfoot></table></div></div>
-<p class="sub">Rekindle only fills a blank Billing Type or a missing Billback Customer tag. Anything AP set by hand stays as entered.</p>`,
+<div class="card">${filterBar}
+<div class="selbar"><span>Showing <b>${shown.length}</b> of ${plan.lines.length} lines · ${usd(shownCents)}</span>${canStamp ? '<span id="sel-count" aria-live="polite"></span>' : ''}</div>
+<div class="scroll"><table><thead><tr><th class="check">${canStamp ? '<input type="checkbox" id="select-all" aria-label="Select all lines shown that can be stamped">' : ''}</th><th>Bill</th><th>Line</th><th>Description</th><th>Deals tag</th><th>Billing type</th><th>Billback customer</th><th>Status</th><th class="num">Amount</th></tr></thead>
+<tbody>${rows || `<tr><td colspan="9" class="muted">${active ? 'No lines match these filters.' : 'No pending lines.'}</td></tr>`}</tbody>
+<tfoot><tr><td></td><td colspan="7">${active ? 'Total shown' : 'Total'}</td><td class="num">${usd(shownCents)}</td></tr></tfoot></table></div></div>
+<p class="sub">Only lines marked To stamp can be selected. Rekindle only fills a blank Billing Type or a missing Billback Customer tag; anything AP set by hand stays as entered.</p>`,
   });
 }
 
