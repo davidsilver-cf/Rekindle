@@ -2,13 +2,18 @@
   "name": "rekindle",
   "version": "0.1.0",
   "private": true,
-  "description": "Automated billback for Campfire: unbilled expenses → allocation → invoicing",
+  "description": "Automated billback for Campfire: unbilled expenses \u2192 allocation \u2192 invoicing",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
     "dry-run": "node src/dry-run.js",
     "dry-run:fixture": "node src/dry-run.js --fixture test/fixtures/ABC_261106.json"
+  },
+  "dependencies": {
+    "pg": "^8.11.3"
   }
 }

@@ -13,11 +13,27 @@ services:
       # Writing to Campfire stays off until this is changed to "true".
       - key: REKINDLE_WRITE
         value: "false"
-      # Secrets: Render asks for these when the Blueprint is created.
+      # Secrets: Render asks for these; add any left blank later under Environment.
       - key: CAMPFIRE_API_KEY
         sync: false
       - key: CAMPFIRE_WEBHOOK_SECRET
         sync: false
-      # Password for /dry-run and /run; Render generates it.
+      # Admin access token (machine endpoints and token sign-in); Render generates it.
       - key: REKINDLE_ADMIN_TOKEN
         generateValue: true
+      # Signs sign-in cookies; Render generates it.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Postgres: the Internal Database URL of a Render Postgres instance.
+      - key: DATABASE_URL
+        sync: false
+      # Google sign-in (OAuth client from Google Cloud Console).
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Who can sign in, and who is an admin (comma-separated emails).
+      - key: REKINDLE_ALLOWED_DOMAIN
+        value: campfire.ai
+      - key: REKINDLE_ADMINS
+        sync: false

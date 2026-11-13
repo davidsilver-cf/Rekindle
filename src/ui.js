@@ -74,6 +74,13 @@ td.check input:disabled{cursor:not-allowed;opacity:.35}
 a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:#D6D1C9;box-shadow:0 1px 0 #D6D1C9}
 .dealrow{display:block;padding:12px 14px;border-bottom:1px solid var(--soft);text-decoration:none;color:var(--ink)}
 .dealrow.on{background:var(--accent-tint)}
+.inline{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+.inline input,.inline textarea{min-height:40px;padding:8px 10px;border:1px solid #D6D1C9;border-radius:8px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff}
+.inline textarea{min-height:40px;resize:vertical;width:100%}
+.decide{display:flex;flex-direction:column;gap:8px;min-width:240px}
+.decide .row{display:flex;gap:8px;flex-wrap:wrap}
+.who{display:flex;flex-direction:column;gap:2px}
+.btn.sm{min-height:36px;padding:0 12px;font-size:13px}
 .dealrow b{display:block;font-size:14px}.dealrow span{font-size:12px;color:var(--quiet)}
 `;
 
@@ -83,7 +90,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
   const items = [
     ['/', 'queue', 'Billback queue', ctx.plan.lines.length],
     ['/deals', 'deals', 'Deals &amp; allocations', null],
-    ['/approvals', 'approvals', 'Approvals', null],
+    ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null],
     ['/invoices', 'invoices', 'Invoices', ctx.plan.customers.length || null],
   ];
   const nav = items
@@ -96,7 +103,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell">
 <nav aria-label="Rekindle"><div class="brand">${FLAME}<div><b>Rekindle</b><small>Billback for Campfire</small></div></div>${nav}
-<div class="foot"><span>${ctx.demo ? 'Demo mode' : 'Live from Campfire'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span></div></nav>
+<div class="foot">${ctx.user ? `<span class="who"><b style="color:var(--ink)">${esc(ctx.user.name || ctx.user.email)}</b><span>${esc(ctx.user.email)}${ctx.admin ? ' · admin' : ''}</span></span><form method="post" action="/logout"><button class="btn sm" type="submit">Sign out</button></form>` : ''}<span>${ctx.demo ? 'Demo mode' : 'Live from Campfire'}</span><span>Approvals saved: ${ctx.storeKind === 'postgres' ? 'database' : 'not saved (no database)'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span></div></nav>
 <main>${source}${body}</main></div>${scripts.map((src) => `<script src="${src}" defer></script>`).join('')}</body></html>`;
 }
 
@@ -205,6 +212,18 @@ ${select('bill', 'Bill', filters.bill, uniq(plan.lines.map((l) => l.billNumber))
   });
 }
 
+function approverCard(ctx, deal) {
+  const current = ctx.approvers?.get(deal.dealsTagId) || '';
+  const form = ctx.admin
+    ? `<form class="inline" method="post" action="/deals/approver"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}">
+<label class="filter grow"><span>Approver email</span><input type="email" name="email" value="${esc(current)}" placeholder="name@company.com" autocomplete="off"></label>
+<button class="btn" type="submit">Save</button></form>`
+    : '';
+  return `<div class="card pad"><h2>Approver</h2>
+<div>${current ? `<b>${esc(current)}</b> approves this deal's billbacks.` : '<span class="muted">No approver yet. Until one is set, an admin approves this deal.</span>'}</div>
+${form}${!ctx.admin ? '<p class="sub" style="margin:0">Only admins can change approvers.</p>' : ''}</div>`;
+}
+
 export function dealsPage(ctx, selected) {
   const { config } = ctx;
   const deal = config.deals.find((d) => d.dealsTag === selected) || config.deals.find((d) => d.billingType === 'Allocation') || config.deals[0];
@@ -240,7 +259,7 @@ export function dealsPage(ctx, selected) {
 <div><span class="small muted">Deal</span><div style="font-size:20px;font-weight:700">${esc(deal.dealsTag)}</div></div>
 <div><span class="small muted">Billing type</span><div>${typePill(deal.billingType)}</div></div>
 <div><span class="small muted">Campfire Deals tag</span><div>ID ${esc(deal.dealsTagId)}</div></div></div>
-${detail}</div></div>`,
+${approverCard(ctx, deal)}${detail}</div></div>`,
   });
 }
 
@@ -256,11 +275,51 @@ function checks(ctx) {
   ];
 }
 
-export function approvalsPage(ctx) {
+const APPROVAL = {
+  waiting: ['Waiting', 'background:var(--warn-tint);color:var(--warn)'],
+  approved: ['Approved', 'background:var(--good-tint);color:var(--good)'],
+  sent_back: ['Sent back', 'background:#FDECEC;color:#991B1B'],
+  changed: ['Changed since approval', 'background:var(--warn-tint);color:var(--warn)'],
+};
+const when = (d) => new Date(d).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }) + ' ET';
+
+function decisionCell(ctx, g) {
+  const parts = [];
+  if (g.decision) {
+    const verb = g.decision.decision === 'approved' ? 'Approved' : 'Sent back';
+    parts.push(`<span class="small muted">${verb} by ${esc(g.decision.actor_email)} · ${esc(when(g.decision.created_at))}${g.status === 'changed' ? ' (before lines changed)' : ''}</span>`);
+    if (g.decision.note) parts.push(`<span class="small">“${esc(g.decision.note)}”</span>`);
+  }
+  if (g.canDecide && g.status !== 'approved') {
+    parts.push(`<form class="decide" method="post" action="/approvals/decide">
+<input type="hidden" name="deal" value="${esc(g.deal.dealsTagId)}"><input type="hidden" name="fingerprint" value="${esc(g.fingerprint)}">
+<label class="sr" for="note-${esc(g.deal.dealsTagId)}" style="font-size:12px;color:var(--quiet)">Note (optional)</label>
+<textarea id="note-${esc(g.deal.dealsTagId)}" name="note" rows="1" maxlength="500" style="min-height:36px;padding:8px 10px;border:1px solid #D6D1C9;border-radius:8px;font:inherit;font-size:13px"></textarea>
+<div class="row"><button class="btn primary sm" type="submit" name="decision" value="approved">Approve ${usd(g.cents)}</button><button class="btn sm" type="submit" name="decision" value="sent_back">Send back</button></div></form>`);
+  } else if (!g.canDecide && g.status !== 'approved') {
+    parts.push(`<span class="small muted">Waiting on ${esc(g.approver || 'an admin')}</span>`);
+  }
+  return `<div class="decide">${parts.join('')}</div>`;
+}
+
+export function approvalsPage(ctx, flash) {
   const { plan } = ctx;
+  const groups = ctx.groups || [];
+  const ready = groups.length > 0 && groups.every((g) => g.status === 'approved');
+  const approvedCents = groups.filter((g) => g.status === 'approved').reduce((s, g) => s + g.cents, 0);
   const billed = plan.totals.billedCents || 1;
   const largest = Math.max(1, ...plan.customers.map((c) => c.cents));
-  const rows = plan.customers
+
+  const dealRows = groups
+    .map((g) => {
+      const [label, style] = APPROVAL[g.status];
+      return `<tr><td><a href="/deals?deal=${encodeURIComponent(g.deal.dealsTag)}"><b>${esc(g.deal.dealsTag)}</b></a><div class="small muted">${g.lines.length} line${g.lines.length === 1 ? '' : 's'} · ${esc(g.deal.billingType)}</div></td>
+<td class="wrap">${g.approver ? esc(g.approver) : '<span class="muted">Admin (no approver set)</span>'}</td>
+<td class="num">${usd(g.cents)}</td><td>${pill(label, style)}</td><td style="white-space:normal">${decisionCell(ctx, g)}</td></tr>`;
+    })
+    .join('');
+
+  const custRows = plan.customers
     .map((c) => {
       const share = (c.cents / billed) * 100;
       const sources = c.sources.map((s) => `line ${esc(s.lineId)}${s.percent < 100 ? ` (${esc(s.percent)}%)` : ''} ${usd(s.cents)}`).join(' · ');
@@ -269,17 +328,22 @@ export function approvalsPage(ctx) {
     })
     .join('');
   const list = checks(ctx).map(([ok, text]) => `<span class="${ok ? 'ok' : 'no'}">${ok ? '✓' : '✗'} ${esc(text)}</span>`).join('');
+  const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}">${esc(flash.text)}</div>` : '';
+  const storeNote = ctx.storeKind !== 'postgres'
+    ? '<div class="banner demo">No database connected: approvals and approvers are kept only until Rekindle restarts. Add <code>DATABASE_URL</code> on Render to keep them.</div>'
+    : '';
 
   return layout({
     active: 'approvals', title: 'Review & approve', ctx,
-    body: `<div><span class="small muted">Approvals › Current run</span><h1 style="margin-top:6px">Billback run · ${usd(plan.totals.billedCents)}</h1><p class="sub">What each fund and customer will be invoiced, before anything is created in Campfire.</p></div>
-<div class="split"><div class="card wide"><div class="cardhead"><h2>Amount owed by billback customer</h2><span class="small muted">${plan.customers.length} customers · ${plan.lines.length - plan.lines.filter((l) => l.exception).length} lines</span></div>
-<div class="scroll"><table><thead><tr><th>Billback customer</th><th>Share of run</th><th class="num">%</th><th class="num">Amount</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">Nothing to bill.</td></tr>'}</tbody>
+    body: `${flashHtml}${storeNote}<div class="head"><div><span class="small muted">Approvals › Current run</span><h1 style="margin-top:6px">Billback run · ${usd(plan.totals.billedCents)}</h1><p class="sub">Each deal's approver signs off on that deal. Invoices can go out once every deal is approved.</p></div>
+${ready ? '<a class="btn primary" href="/invoices">All approved · preview invoices</a>' : `<span class="pill" style="background:var(--warn-tint);color:var(--warn);font-size:13px;padding:6px 12px">${usd(approvedCents)} of ${usd(groups.reduce((s, g) => s + g.cents, 0))} approved</span>`}</div>
+<div class="card"><div class="cardhead"><h2>Approval by deal</h2><span class="small muted">${groups.filter((g) => g.status === 'approved').length} of ${groups.length} deals approved</span></div>
+<div class="scroll"><table><thead><tr><th>Deal</th><th>Approver</th><th class="num">Amount</th><th>Status</th><th>Decision</th></tr></thead>
+<tbody>${dealRows || '<tr><td colspan="5" class="muted">Nothing waiting for approval.</td></tr>'}</tbody></table></div></div>
+<div class="split"><div class="card wide"><div class="cardhead"><h2>Amount owed by billback customer</h2><span class="small muted">${plan.customers.length} customers</span></div>
+<div class="scroll"><table><thead><tr><th>Billback customer</th><th>Share of run</th><th class="num">%</th><th class="num">Amount</th></tr></thead><tbody>${custRows || '<tr><td colspan="4" class="muted">Nothing to bill.</td></tr>'}</tbody>
 <tfoot><tr><td colspan="2">Total</td><td class="num">100%</td><td class="num">${usd(plan.totals.billedCents)}</td></tr></tfoot></table></div></div>
-<div class="side" style="display:flex;flex-direction:column;gap:16px">
-<div class="card pad"><h2>Checks</h2>${list}</div>
-<div class="card pad"><h2>Approval</h2><p class="sub" style="margin:0">Recording approvals needs the database step. For now this page is the review.</p>
-<a class="btn primary" href="/invoices">Preview invoices</a></div></div></div>`,
+<div class="side card pad"><h2>Checks</h2>${list}</div></div>`,
   });
 }
 
@@ -321,12 +385,14 @@ ${preview}</div>`,
   });
 }
 
-export function loginPage(error) {
+export function loginPage(error, { google = false, token = true } = {}) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
 <body><main style="max-width:420px;margin:12vh auto"><div class="card pad" style="gap:16px;padding:28px">${FLAME}<h1>Rekindle</h1>
 ${error ? `<div class="banner bad">${esc(error)}</div>` : ''}
-<form method="post" action="/login" style="display:flex;flex-direction:column;gap:10px"><label for="token" class="small muted">Access token</label>
+${google ? '<a class="btn primary" href="/auth/google">Sign in with Google</a>' : ''}
+${google && token ? '<p class="sub" style="margin:0;text-align:center">or, for admins</p>' : ''}
+${token ? `<form method="post" action="/login" style="display:flex;flex-direction:column;gap:10px"><label for="token" class="small muted">Access token</label>
 <input id="token" name="token" type="password" autocomplete="current-password" required style="min-height:44px;padding:0 12px;border:1px solid #D6D1C9;border-radius:8px;font:inherit">
-<button class="btn primary" type="submit">Sign in</button></form>
-<p class="sub" style="margin:0">The token is <code>REKINDLE_ADMIN_TOKEN</code> in the Render service's Environment tab.</p></div></main></body></html>`;
+<button class="btn${google ? '' : ' primary'}" type="submit">Sign in with token</button></form>
+<p class="sub" style="margin:0">The token is <code>REKINDLE_ADMIN_TOKEN</code> in the Render service's Environment tab.</p>` : ''}</div></main></body></html>`;
 }

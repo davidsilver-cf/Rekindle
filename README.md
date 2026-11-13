@@ -15,7 +15,8 @@ Automated billback for Campfire: unbilled expenses → allocation → invoicing.
 | Web service for Render: webhooks, dry-run page, backfill | ✅ built; deploy next |
 | Write stamps back to Campfire | ✅ built, **off** until `REKINDLE_WRITE=true` |
 | Screens: Billback queue, Deals & allocations, Approvals, Invoices | ✅ prototype, read-only; demo mode until an API key is set |
-| Database: editable setup, recorded approvals, run history | next |
+| Per-deal approvers, Google sign-in, approvals saved in Postgres | ✅ built; needs Google client + database on Render |
+| Editable allocation % on the Deals screen | next |
 | Invoice creation | planned |
 
 ## The screens
@@ -77,3 +78,19 @@ The API key is only ever read from the `CAMPFIRE_API_KEY` environment variable (
 Rekindle's own write fires a `Bill.updated` event; the second pass finds nothing left to stamp, so it doesn't loop. The free Render plan sleeps when idle, so the first webhook after a quiet spell can take up to a minute.
 
 **Before turning writes on:** Campfire's bill update replaces every line, so Rekindle sends all lines back with their existing values. The exact shape for writing tags and the Billing Type custom field isn't spelled out in Campfire's API docs, so the first write should be checked on the test bill.
+
+## Approvals and sign-in
+
+Each deal has an **approver** (set by an admin on the Deals screen). On **Approvals**, the run is grouped by deal; only that deal's approver can **Approve** or **Send back** (with an optional note). A deal with no approver can be decided by an admin. If a deal's lines or amounts change after approval, it shows **Changed since approval** and must be approved again. Invoices are ready once every deal is approved.
+
+People sign in with **Google**. Anyone with an `@REKINDLE_ALLOWED_DOMAIN` address (or listed in `REKINDLE_ALLOWED_EMAILS`) can sign in and view; `REKINDLE_ADMINS` can set approvers. The access token still works as an admin sign-in.
+
+Approvers, decisions and an audit log are kept in Postgres (`DATABASE_URL`). Without it they're kept in memory and lost on restart; the Approvals screen says so.
+
+### Setup on Render
+
+1. **Database.** Render → **New → Postgres** (same region as the service). Copy its **Internal Database URL** into the service's `DATABASE_URL`. Tables are created on start.
+2. **Google sign-in.** Google Cloud Console → APIs & Services → **Credentials → Create credentials → OAuth client ID** → *Web application*. Authorized redirect URI: `https://<your-service>.onrender.com/auth/google/callback`. Put the client ID and secret in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. (The OAuth consent screen should be *Internal* to your Google Workspace.)
+3. **People.** `REKINDLE_ADMINS` = comma-separated admin emails. `REKINDLE_ALLOWED_DOMAIN` = your Google Workspace domain.
+
+`/health` reports `"database": true` and `"google": true` when both are connected.
