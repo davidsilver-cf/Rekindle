@@ -308,3 +308,32 @@ test('inside Campfire: panels on bills and invoices, embedded screens, PDF butto
   const own = await fetch(`${base}/login`, { method: 'POST', redirect: 'manual', headers: { origin: 'null', 'sec-fetch-site': 'same-origin', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'token=tok' });
   assert.equal(own.status, 303);
 });
+
+test('invoice date: defaults to today on the Invoices screen, can be backdated, and sets the invoice and due dates', async () => {
+  // Free Deal XYZ's line again so there's something to invoice.
+  const { getStore } = await import('../src/store.js');
+  const store = await getStore();
+  for (const r of await store.listRuns()) if (r.customer_name === 'Deal XYZ' && r.status !== 'failed') await store.releaseRun(r.id, 'test');
+  for (const l of bills[0].lines) if (l.id === 9190921) l.tags = l.tags.map((t) => (t.id === BILLED ? { ...t, id: PENDING, name: 'Pending' } : t));
+  await approveAll();
+  const page = await (await get('/invoices')).text();
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  assert.match(page, new RegExp(`<input type="date" name="date" value="${today}" required>`));
+  // Confirm page carries the chosen date and flags backdating.
+  const form = new URLSearchParams({ date: '2026-10-31' });
+  const all = [...page.matchAll(/name="customer" value="([^"]+)" form="create-form"/g)].map((m) => m[1]);
+  assert.ok(all.length, 'a customer ready to invoice');
+  form.append('customer', all[0]);
+  const confirm = await (await fetch(`${base}/invoices/confirm`, { method: 'POST', headers: { cookie: admin(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })).text();
+  assert.match(confirm, /Backdated to 2026-10-31/);
+  assert.match(confirm, /<input type="hidden" name="date" value="2026-10-31">/);
+  assert.match(confirm, /<td>2026-10-31<\/td>/);
+  // A bad date is refused.
+  const bad = new URLSearchParams({ date: 'nope', customer: all[0] });
+  assert.equal((await fetch(`${base}/invoices/confirm`, { method: 'POST', redirect: 'manual', headers: { cookie: admin(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: bad })).headers.get('location'), '/invoices?baddate=1');
+  // Create it backdated: Campfire gets the chosen invoice date.
+  const create = new URLSearchParams({ date: '2026-10-31', customer: all[0], confirm: 'yes' });
+  const r = await fetch(`${base}/invoices/create`, { method: 'POST', redirect: 'manual', headers: { cookie: admin(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: create });
+  assert.match(r.headers.get('location'), /done=1/);
+  assert.equal(sent.invoices.at(-1).invoice_date, '2026-10-31');
+});

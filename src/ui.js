@@ -579,7 +579,7 @@ export function invoicesPage(ctx, selected, flash = null) {
   return layout({
     active: 'invoices', title: 'Invoices', ctx, scripts: ['/static/queue.js'],
     body: `${flashHtml}${setupNote}<div class="head"><div><h1 class="title">Create invoices</h1><p class="sub">One invoice per billback customer, once every deal feeding it is approved.</p></div>
-${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm"><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
+${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm" class="inline"><label class="filter" style="min-width:160px"><span>Invoice date</span><input type="date" name="date" value="${esc(todayLocal())}" required></label><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
 ${why && ctx.admin ? `<p class="sub" style="margin:0">${esc(why)}</p>` : ''}
 <div class="split"><div class="wide" style="display:flex;flex-direction:column;gap:16px"><div class="card">
 <div class="selbar"><span>${plan.customers.length} customer${plan.customers.length === 1 ? '' : 's'} to invoice · ${usd(plan.totals.billedCents)}</span>${canCreate ? '<span id="sel-count" aria-live="polite"></span>' : ''}</div>
@@ -591,7 +591,7 @@ ${historyTable(ctx)}`,
   });
 }
 
-export function confirmInvoicesPage(ctx, chosen) {
+export function confirmInvoicesPage(ctx, chosen, date = null) {
   const total = chosen.reduce((s, c) => s + c.customer.cents, 0);
   const rows = chosen.map((c) => `<tr><td><b>${esc(c.customer.customer.name)}</b><input type="hidden" name="customer" value="${esc(c.customer.customer.name)}"></td>
 <td>${c.request.lines.length}</td><td>${esc(c.request.invoice_date)}</td><td>${esc(c.request.due_date)}</td><td class="num">${usd(c.customer.cents)}</td>
@@ -601,7 +601,8 @@ export function confirmInvoicesPage(ctx, chosen) {
     active: 'invoices', title: 'Confirm invoices', ctx,
     body: `<div><span class="small muted">Invoices › Confirm</span><h1 style="margin-top:6px">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} · ${usd(total)}</h1>
 <p class="sub">This creates real invoices in Campfire, attaches each PDF, and marks the source bill lines Billed. It can't be undone from Rekindle; a mistake is fixed by voiding the invoice in Campfire.</p></div>
-<form method="post" action="/invoices/create" class="card"><div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+${date && date < todayLocal() ? `<div class="banner demo"><b>Backdated to ${esc(date)}.</b> The invoices post in that period; make sure it isn't locked in Campfire.</div>` : ''}
+<form method="post" action="/invoices/create" class="card">${date ? `<input type="hidden" name="date" value="${esc(date)}">` : ''}<div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 <div class="pad" style="flex-direction:row;gap:8px">${blocked ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} in Campfire</button>`}<a class="btn" href="/invoices">Cancel</a></div></form>`,
   });
 }

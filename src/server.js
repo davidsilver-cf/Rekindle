@@ -271,6 +271,8 @@ const SCREENS = {
         n(s, 'held') ? `${n(s, 'held')} need${n(s, 'held') === 1 ? 's' : ''} checking in Campfire; see Invoice history.` : '',
         n(s, 'failed') ? `${n(s, 'failed')} not created; see Invoice history for why.` : '',
       ].filter(Boolean).join('\n') };
+    } else if (s.has('baddate')) {
+      flash = { ok: false, text: 'Pick a valid invoice date.' };
     } else if (s.has('nothing')) {
       flash = { ok: false, text: 'Select at least one customer that is ready to invoice.' };
     } else if (s.has('retagged')) {
@@ -694,16 +696,19 @@ async function handle(req, res) {
       const names = new Set(form.getAll('customer'));
       const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && ctx.readiness.get(c.customer.name)?.ready);
       if (!chosen.length) return redirect(res, '/invoices?nothing=1');
+      // Invoice date: today unless the person picked another (backdating allowed).
+      const date = form.get('date') || todayISO();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) return redirect(res, '/invoices?baddate=1');
 
       if (url.pathname === '/invoices/confirm' || form.get('confirm') !== 'yes') {
-        const preview = chosen.map((customer) => ({ customer, ...prepareInvoice({ customer, plan: ctx.plan, config: ctx.config, ref: 'preview' }) }));
-        return html(res, confirmInvoicesPage(ctx, preview));
+        const preview = chosen.map((customer) => ({ customer, ...prepareInvoice({ customer, plan: ctx.plan, config: ctx.config, date, ref: 'preview' }) }));
+        return html(res, confirmInvoicesPage(ctx, preview, date));
       }
 
       const tally = { done: 0, partial: 0, held: 0, failed: 0 };
       for (const customer of chosen) {
         try {
-          const out = await startInvoice({ customer, plan: ctx.plan, config: ctx.config, store, api: campfireApi, user, log: console.log });
+          const out = await startInvoice({ customer, plan: ctx.plan, config: ctx.config, store, api: campfireApi, user, date, log: console.log });
           if (!out.ok) { tally.failed++; console.log(JSON.stringify({ event: 'invoice_blocked', customer: customer.customer.name, problems: out.problems })); continue; }
           const st = out.run.status;
           if (st === 'complete') tally.done++;
