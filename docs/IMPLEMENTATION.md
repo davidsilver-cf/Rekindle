@@ -22,7 +22,7 @@ This guide is for the **Campfire implementer** setting Rekindle up for a new pri
 
 Every reimbursable expense moves through four stages, and its **Billback Status** tag in Campfire shows where it is: Pending, then Allocated Pending Invoice for a split line part-way invoiced, then Billed.
 
-![Every line is stamped, allocated and approved before it is invoiced](images/billback-flow.png)
+![Every line is stamped, allocated and reviewed for approval, then invoiced](images/billback-flow.png)
 
 A deal sent back goes to AP to fix the bill, then returns for approval; Expense lines leave the flow at allocation.
 
