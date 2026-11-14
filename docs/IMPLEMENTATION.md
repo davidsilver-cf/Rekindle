@@ -238,7 +238,8 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | `url_template: … is not one of the app's allowed domains` | Host not on the app | Add `<host>` to the app's allowed domains |
 | Inside Campfire it keeps asking to sign in; log `cf_ctx_rejected` | Signing secret missing or rotated | Rotate the app's signing secret into `CAMPFIRE_CONTEXT_SECRET` |
 | Inside Campfire: no Approve/Send back, no invoice checkboxes, no Stamp | The Campfire user isn't linked to a Rekindle email, so it isn't an admin or approver | Press **Link my account** and sign in once; or an admin adds `<user id>=their@email` to `REKINDLE_CAMPFIRE_USERS` |
-| Link my account: "didn't say who you are" | The app lacks openid, email, profile | Turn on Identity for the app (Step 3b), or an admin adds the person in `REKINDLE_CAMPFIRE_USERS` |
+| Link my account: "This app may not request: openid email profile" or "didn't say who you are" | Campfire isn't giving the app identity scopes | An admin opens the person's link signed in with the access token and enters their email; or `REKINDLE_CAMPFIRE_USERS` |
+| Link my account: new tab shows a Firefox security error (NS_ERROR_DOM_COOP_FAILED) | The tab inherited Campfire's frame restrictions | **New tab shows a security error? → Copy link**, paste into a tab you open yourself |
 | "Refused: this form was sent from another site" | A form posted from outside Rekindle | Expected for other sites; if it's Rekindle's own form, report it |
 | A panel says "refused to connect" | Campfire's address isn't allowed to frame Rekindle | Add it to `REKINDLE_FRAME_ANCESTORS` |
 | Invoice history: **Check Campfire** | Rekindle couldn't tell whether the invoice was created | Search Campfire for the `RK-…` reference; press **It was created** (with its ID) or **It wasn't created** |
