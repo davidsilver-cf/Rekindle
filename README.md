@@ -2,6 +2,8 @@
 
 Automated billback for Campfire: unbilled expenses → allocation → invoicing.
 
+**Setting Rekindle up for a customer?** Start with the [Implementation Guide](docs/IMPLEMENTATION.md).
+
 1. **Stamp:** fill each Pending bill line's Billing Type and Billback Customer from its Deals tag.
 2. **Allocate:** bill Deal and Fund lines directly; split Allocation lines across owners by effective-dated percentages.
 3. **Approve:** review what each fund or customer owes before anything is created.
