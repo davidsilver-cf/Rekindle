@@ -129,11 +129,19 @@ export async function postgresStore(connectionString) {
   };
 }
 
+export class StoreError extends Error {}
+
 let current;
 export async function getStore() {
   if (!current) {
-    current = process.env.DATABASE_URL ? await postgresStore(process.env.DATABASE_URL) : memoryStore();
-    await current.init();
+    try {
+      const store = process.env.DATABASE_URL ? await postgresStore(process.env.DATABASE_URL) : memoryStore();
+      await store.init();
+      current = store; // only keep a store that actually connected; otherwise retry next time
+    } catch (err) {
+      const host = (() => { try { return new URL(process.env.DATABASE_URL).hostname; } catch { return null; } })();
+      throw new StoreError(`Can't reach the database${host ? ` at "${host}"` : ''}: ${err.message}. Check DATABASE_URL on Render: it should be the database's full Internal Database URL.`);
+    }
   }
   return current;
 }

@@ -195,3 +195,17 @@ test('a new Deals tag shows as Needs setup; an admin sets it up and its lines bi
     served = bills;
   }
 });
+
+test('a bad DATABASE_URL gives a clear message, and /health says why', async () => {
+  const { getStore } = await import('../src/store.js');
+  // The store already connected (memory) in this process, so check the message shape directly.
+  const saved = process.env.DATABASE_URL;
+  const mod = await import(`../src/store.js?bad=${Date.now()}`);
+  process.env.DATABASE_URL = 'postgresql://u:p@base/db';
+  try {
+    await assert.rejects(mod.getStore(), (err) => err instanceof mod.StoreError && /Can't reach the database at "base"/.test(err.message) && /Internal Database URL/.test(err.message));
+  } finally {
+    if (saved === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved;
+  }
+  assert.ok(await getStore());
+});

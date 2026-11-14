@@ -24,7 +24,7 @@ import { validateSetup } from './setup.js';
 import { queuePage, dealsPage, approvalsPage, invoicesPage, loginPage, readFilters } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
-import { getStore } from './store.js';
+import { getStore, StoreError } from './store.js';
 import { dealGroups, withStatus, canDecide } from './approvals.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
@@ -169,8 +169,10 @@ async function handle(req, res) {
   const user = currentUser(req);
 
   if (req.method === 'GET' && url.pathname === '/health') {
-    const store = await getStore();
-    return send(res, 200, { ok: true, write: writeEnabled(), demo: demoMode(), database: store.kind === 'postgres', google: googleConfigured() }, 'application/json');
+    let database = false;
+    let databaseError;
+    try { database = (await getStore()).kind === 'postgres'; } catch (err) { databaseError = err.message; }
+    return send(res, 200, { ok: true, write: writeEnabled(), demo: demoMode(), database, ...(databaseError ? { databaseError } : {}), google: googleConfigured() }, 'application/json');
   }
 
   if (req.method === 'GET' && STATIC[url.pathname]) {
@@ -344,7 +346,9 @@ export function createServer() {
       await handle(req, res);
     } catch (err) {
       console.log(JSON.stringify({ event: 'error', path: req.url?.split('?')[0], error: err.message }));
-      if (!res.headersSent) send(res, 500, 'Something went wrong. Check the Render logs.');
+      if (!res.headersSent) {
+        send(res, err instanceof StoreError ? 503 : 500, err instanceof StoreError ? err.message : 'Something went wrong. Check the Render logs.');
+      }
     }
   });
 }
