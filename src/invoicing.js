@@ -42,18 +42,26 @@ export function prepareInvoice({ customer, plan, config, date = todayET(), ref }
   const dueDate = addDays(date, termsDays);
   const d = invoiceData({ customer, plan, branding: config.invoice || {}, invoice: { date } });
 
-  // One invoice line per deal per recharge category, matching the PDF.
+  // One Campfire invoice line per source bill line (or per share of a split
+  // line), so the transaction in Campfire keeps every expense. The PDF
+  // summarises them: one line per deal per category on the invoice page, each
+  // source line in the supporting detail. Same order as the PDF detail.
   const lines = [];
   for (const g of d.deals) {
     for (const c of g.categories) {
-      const amount = c.cents / 100;
-      lines.push({
-        product,
-        description: d.multiDeal ? `${g.deal} — ${c.category} (reimbursable expenses)` : `${c.category} — reimbursable expenses (${g.deal})`,
-        quantity: 1,
-        rate: amount,
-        amount,
-      });
+      for (const src of c.sources) {
+        const l = src.line;
+        const share = src.percent < 100 ? `, ${src.percent}% share of ${(l.amountCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}` : '';
+        const amount = src.cents / 100;
+        lines.push({
+          product,
+          description: `${g.deal} — ${c.category}: ${l.description || 'expense'} (${l.vendorName ? `${l.vendorName} ` : ''}${l.billNumber}${share})`.slice(0, 1000),
+          service_date: l.billDate || undefined,
+          quantity: 1,
+          rate: amount,
+          amount,
+        });
+      }
     }
   }
   const body = {

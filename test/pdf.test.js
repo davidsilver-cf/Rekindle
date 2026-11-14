@@ -119,3 +119,23 @@ test('single-deal invoices keep the simple layout', () => {
   assert.equal(d.multiDeal, false);
   assert.ok(!pageText(buildInvoicePdf({ customer: fund1Only, plan, branding: {}, invoice: {} })).join('\n').includes('Deal and category'));
 });
+
+import { prepareInvoice } from '../src/invoicing.js';
+test('three legal fees for one deal: three Campfire invoice lines, one summary line on the PDF', () => {
+  const b = structuredClone(bills);
+  const xyz = b[0].lines.find((l) => l.id === 9190921);
+  b[0].lines.push({ ...structuredClone(xyz), id: 1, description: 'Legal Fee - Deal XYZ, round 2', amount: '2500.00' },
+                  { ...structuredClone(xyz), id: 2, description: 'Legal Fee - Deal XYZ, closing', amount: '1250.50' });
+  const p = planBills(b, config);
+  const customer = p.customers.find((c) => c.customer.name === 'Deal XYZ');
+  const prep = prepareInvoice({ customer, plan: p, config: { ...config, invoice: { ...config.invoice, productId: 777 } }, date: '2026-11-14', ref: 'RK-T' });
+  assert.equal(prep.request.lines.length, 3);
+  assert.deepEqual(prep.request.lines.map((l) => l.amount).sort((a, b) => a - b), [1250.5, 2500, 10000]);
+  assert.equal(prep.request.lines.reduce((s, l) => s + Math.round(l.amount * 100), 0), customer.cents);
+  const d = invoiceData({ customer, plan: p, branding: {}, invoice: {} });
+  assert.deepEqual(d.categories.map((c) => [c.category, c.cents, c.count]), [['Legal', 1375050, 3]]);
+  const text = pageText(buildInvoicePdf({ customer, plan: p, branding: {}, invoice: {} })).join('\n');
+  // Exactly one summary line on the invoice page (the dash is stored as a WinAnsi byte).
+  assert.equal((text.match(/Legal \x97 reimbursable expenses/g) || []).length, 1);
+  assert.ok(text.includes('3 source lines'));
+});

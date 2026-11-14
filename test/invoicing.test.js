@@ -121,7 +121,7 @@ test('confirm page shows what will be created, then invoices are created end to 
   assert.equal(fund1.client, 22874359);
   assert.equal(fund1.entity, 57560);
   assert.match(fund1.ref_number, /^RK-/);
-  assert.deepEqual(fund1.lines.map((l) => [l.product, l.amount, l.description]), [[777, 8000, 'Legal — reimbursable expenses (Fund I)']]);
+  assert.deepEqual(fund1.lines.map((l) => [l.product, l.amount, l.description, l.service_date]), [[777, 8000, 'Fund I — Legal: Legal Fee - Fund I (ABC Law Firm ABC_261106)', '2026-11-06']]);
   assert.equal(main.client, 22874366);
   assert.deepEqual(main.lines.map((l) => l.amount), [9600]);
 
@@ -161,8 +161,8 @@ test('the last owners of a split mark the line Billed', async () => {
   const emp = sent.invoices.find((i) => i.client === 22874368);
   // Employees Only: its own $2,000 line plus its 5% of Fund II, under two deals.
   assert.deepEqual(emp.lines.map((l) => [l.amount, l.description]), [
-    [600, 'Fund II — Legal (reimbursable expenses)'],
-    [2000, 'Fund II - Employees Only — Legal (reimbursable expenses)'],
+    [600, 'Fund II — Legal: Legal Fee - Fund II (ABC Law Firm ABC_261106, 5% share of $12,000.00)'],
+    [2000, 'Fund II - Employees Only — Legal: Legal Fee - Fund II - Employees Only (ABC Law Firm ABC_261106)'],
   ]);
 });
 
