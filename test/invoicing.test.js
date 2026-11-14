@@ -115,15 +115,25 @@ const createFor = async (...names) => {
   return fetch(base + '/invoices/create', { method: 'POST', redirect: 'manual', headers: { cookie: admin(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
 };
 
-test('unapproved deals are flagged, with links to Approvals, but do not block invoicing', async () => {
+test('only approved deals are invoiced; the rest is shown as waiting, with links to Approvals', async () => {
   const page = await (await get('/invoices')).text();
-  assert.match(page, /Not all deals approved/);
-  assert.match(page, /Waiting: <a href="\/approvals#deal-\d+">/);
-  assert.equal((page.match(/class="pick"/g) || []).length, 5); // all linked customers can be picked
-  const confirm = await (await post('/invoices/confirm', { customer: 'Fund I' })).text();
-  assert.match(confirm, /includes lines from deals that aren&#39;t approved yet|includes lines from deals that aren't approved yet/);
-  assert.match(confirm, /Includes unapproved deals/);
+  assert.match(page, /Waiting for approval/);
+  assert.match(page, /waiting for approval · <a href="\/approvals#deal-\d+">/);
+  assert.equal((page.match(/class="pick"/g) || []).length, 0); // nothing approved yet
+  assert.equal((await createFor('Fund I')).headers.get('location'), '/invoices?nothing=1');
   assert.equal(sent.invoices.length, 0);
+});
+
+test('a customer fed by several deals can be invoiced for the approved ones; the rest is left off', async () => {
+  const page = await (await get('/approvals')).text();
+  const m = page.match(/name="deal" value="1028616"><input type="hidden" name="fingerprint" value="([0-9a-f]+)"/);
+  await post('/approvals/decide', { deal: '1028616', fingerprint: m[1], decision: 'approved' });
+  const inv = await (await get('/invoices')).text();
+  assert.match(inv, /Approved lines ready/);
+  assert.match(inv, /Not on this invoice: \$[\d,.]+ waiting for approval · <a href="\/approvals#deal-1027965">Fund II<\/a>/);
+  const confirm = await (await post('/invoices/confirm', { customer: 'Fund II Employees Only' })).text();
+  assert.match(confirm, /Only lines from approved deals are invoiced/);
+  assert.match(confirm, /Left off \(waiting for approval\)/);
 });
 
 test('confirm page shows what will be created, then invoices are created end to end', async () => {

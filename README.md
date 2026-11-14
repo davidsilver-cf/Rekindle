@@ -84,7 +84,7 @@ Rekindle's own write fires a `Bill.updated` event; the second pass finds nothing
 
 ## Approvals and sign-in
 
-Each deal has an **approver** (set by an admin on the Deals screen). On **Approvals**, the run is grouped by deal; only that deal's approver can **Approve** or **Send back** (with an optional note). A deal with no approver can be decided by an admin. If a deal's lines or amounts change after approval, it shows **Changed since approval** and must be approved again. Approval is advice, not a gate: the Invoices screen shows which deals feeding each customer aren't approved yet (linked to Approvals), the confirmation page warns, and people decide when to invoice.
+Each deal has an **approver** (set by an admin on the Deals screen). On **Approvals**, the run is grouped by deal; only that deal's approver can **Approve** or **Send back** (with an optional note). A deal with no approver can be decided by an admin. If a deal's lines or amounts change after approval, it shows **Changed since approval** and must be approved again. Invoices include only lines from approved deals. A customer fed by several deals can be invoiced for the approved ones; lines from deals not yet approved are shown as waiting (linked to Approvals) and stay for a later invoice.
 
 People sign in with **Google**. Admins can be added on **Settings → Admins** (stored in Postgres) as well as in `REKINDLE_ADMINS`; `REKINDLE_ADMINS` is how the first admin gets in. Anyone with an `@REKINDLE_ALLOWED_DOMAIN` address (or listed in `REKINDLE_ALLOWED_EMAILS`) can sign in and view; `REKINDLE_ADMINS` can set approvers. The access token still works as an admin sign-in.
 
@@ -125,7 +125,7 @@ Setup is saved in Postgres and wins over `config/rekindle.json`, which is now on
 
 ## Creating invoices
 
-**Invoices** lists each billback customer with what it's still owed. A customer can be invoiced once its Billback Customer tag is linked to a Campfire customer. Deals not yet approved are flagged (with links to Approvals), not blocked. Tick the ones to bill, **Create selected**, check the confirmation page, then **Create in Campfire**. For each customer Rekindle:
+**Invoices** lists each billback customer with what it's still owed. A customer can be invoiced once its Billback Customer tag is linked to a Campfire customer (or a Campfire customer has the same name) and at least one of its deals is approved; the invoice carries only the approved deals' lines. Tick the ones to bill, **Create selected**, check the confirmation page, then **Create in Campfire**. For each customer Rekindle:
 
 1. **Reserves** the bill-line shares in its database. A share already on an invoice is refused, so nothing is billed twice, even with two clicks at once.
 2. **Creates the invoice** in Campfire: one line per source bill line (or per owner's share of a split line), on the invoice product, with a reference (`RK-…`) in the invoice's reference number. Each line carries the source line's **department** and its tags (Deals, Recharge Category, Class, any others), plus the **Billback Customer** it's billed to and **Billback Status = Billed**. If Campfire doesn't keep the tags on create, Rekindle sets them on the invoice's lines right after.

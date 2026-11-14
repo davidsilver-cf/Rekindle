@@ -183,7 +183,9 @@ test('a new Deals tag shows as Needs setup; an admin sets it up and its lines bi
     queue = await (await get('/?deal=Project%20Atlas', admin)).text();
     assert.match(queue, /To stamp/);
     const inv = await (await get('/invoices?customer=Fund%20I', admin)).text();
-    assert.match(inv, /\$22,250\.00/); // $8,000 Fund I + $14,250 Atlas
+    // Fund I's own deal is approved ($8,000); Atlas isn't yet, so its $14,250 waits.
+    assert.match(inv, /\$8,000\.00/);
+    assert.match(inv, /Not on this invoice: \$14,250\.00 waiting for approval/);
 
     // Change Fund II's split on the Deals screen: 70 / 20 / 10.
     const split = await post('/deals/setup', { deal: '1027965', billingType: 'Allocation',

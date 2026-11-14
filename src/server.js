@@ -284,17 +284,25 @@ const SCREENS = {
   },
 };
 
-// Invoices filtered to one Billing Group ("none" = deals without one): each
-// customer's amount, lines and readiness count only those deals' lines, so
-// invoices created under the filter carry only them.
-function byBillingGroup(ctx, group) {
-  if (!group) return { ...ctx, billingGroupFilter: '' };
+// What can be invoiced now: only lines from approved deals (optionally one
+// Billing Group; "none" = deals without one). Each customer's amount, lines
+// and PDF count only those; lines from deals not yet approved are listed as
+// waiting and stay for a later invoice.
+function invoiceView(ctx, group) {
   const groupOf = new Map(ctx.config.deals.map((d) => [d.dealsTag, d.billingGroup ? String(d.billingGroup.id) : 'none']));
-  const customers = customersFor(ctx.plan, (l) => groupOf.get(l.dealsTag) === String(group));
-  const plan = { ...ctx.plan, customers, totals: { ...ctx.plan.totals, billedCents: customers.reduce((t, c) => t + c.cents, 0) } };
-  const readiness = new Map(customers.map((c) => [c.customer.name, customerReady(c, ctx.plan, ctx.groups)]));
-  return { ...ctx, plan, readiness, billingGroupFilter: String(group) };
+  const inGroup = (l) => !group || groupOf.get(l.dealsTag) === String(group);
+  const approved = new Set((ctx.groups || []).filter((g) => g.status === 'approved').flatMap((g) => g.lines.map((l) => l.lineId)));
+  const ready = customersFor(ctx.plan, (l) => inGroup(l) && approved.has(l.lineId));
+  const held = customersFor(ctx.plan, (l) => inGroup(l) && !approved.has(l.lineId));
+  const byId = new Map(ctx.plan.lines.map((l) => [l.lineId, l]));
+  const waiting = new Map(held.map((c) => [c.customer.name, { cents: c.cents, deals: [...new Set(c.sources.map((x) => byId.get(x.lineId)?.dealsTag).filter(Boolean))].sort() }]));
+  // Customers with nothing approved yet still get a row, with nothing to invoice.
+  const customers = [...ready, ...held.filter((c) => !ready.some((r) => r.customer.name === c.customer.name)).map((c) => ({ customer: c.customer, cents: 0, sources: [], categories: new Map() }))];
+  const plan = { ...ctx.plan, customers, totals: { ...ctx.plan.totals, billedCents: ready.reduce((t, c) => t + c.cents, 0) } };
+  const readiness = new Map(customers.map((c) => [c.customer.name, { ready: c.cents > 0, waitingOn: waiting.get(c.customer.name)?.deals || [] }]));
+  return { ...ctx, plan, readiness, waiting, billingGroupFilter: group ? String(group) : '' };
 }
+const byBillingGroup = invoiceView;
 
 // Admins from Settings, re-read from the database at most every 15 seconds.
 let adminsAt = 0;
@@ -675,8 +683,7 @@ async function handle(req, res) {
     if (!user) return redirect(res, '/login');
     const store = await getStore();
     const [config, bills, invoiced] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares()]);
-    const full = planBills(bills, config, { invoiced });
-    const plan = url.searchParams.get('group') ? byBillingGroup({ config, plan: full, groups: [] }, url.searchParams.get('group')).plan : full;
+    const plan = invoiceView(await screenContext(user), url.searchParams.get('group')).plan;
     const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
     if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
     const pdf = buildInvoicePdf({ customer, plan, branding: config.invoice || {}, invoice: { draft: true } });
@@ -709,7 +716,7 @@ async function handle(req, res) {
       const names = new Set(form.getAll('customer'));
       // Approval is advice, not a gate: people decide when lines are charged.
       // The screens and the confirmation page say which deals aren't approved.
-      const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && c.customer.customerId);
+      const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && c.customer.customerId && c.cents > 0);
       const back = ctx.billingGroupFilter ? `&group=${encodeURIComponent(ctx.billingGroupFilter)}` : '';
       if (!chosen.length) return redirect(res, `/invoices?nothing=1${back}`);
       // Invoice date: today unless the person picked another (backdating allowed).
