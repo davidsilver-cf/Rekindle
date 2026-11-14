@@ -207,7 +207,7 @@ The finance team's routine is: clear exceptions on the Billback Queue, get each 
 | Billback Queue | Every Pending line on 13190: deal, billing type, who it bills, status | Fix exceptions; select lines and **Stamp** any the webhook missed; **Review for approval** |
 | Deals & Allocations | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; change owners and %; set approvers (admins) |
 | Approvals | The run grouped by deal, with each deal's total and status | Approvers **Approve** or **Send back** with a note; click a line count to see the lines |
-| Invoices | What each billback customer owes, and whether it's Ready | Download a draft PDF; tick customers and **Create selected**; Invoice history, Retry, Re-apply tags |
+| Invoices | What each billback customer owes, and whether it's Ready | Download a draft PDF; tick customers, set the **Invoice date** (today by default; can be backdated) and **Create selected**; Invoice history, Retry, Re-apply tags |
 | Reclass | Expense lines waiting to move off 13190, and Reclass history | Tick lines, pick the JE date, **Reclass selected**, confirm; Retry or resolve a run that didn't finish |
 | Settings | The Campfire connection, admins, reclass accounts, people linked from Campfire | Connect or disconnect; add or remove admins; unlink people (admins) |
 
@@ -220,7 +220,7 @@ Inside Campfire's own records:
 
 1. Billback Queue: check Exceptions is 0. A deal tag that **needs setup** links straight to its setup.
 2. Click **Review for approval**; each approver approves their deals.
-3. Invoices: create invoices for every Ready customer and check the totals against the queue.
+3. Invoices: create invoices for every Ready customer and check the totals against the queue. Set the **Invoice date** first if they should be dated earlier (for example month-end); the due date follows the terms from that date, and the confirmation page flags a backdated date so you can check the period isn't locked.
 4. Reclass: post the month's Expense lines (date it month-end if you close that way).
 5. Check Invoice history and Reclass history are all **Complete**.
 
