@@ -37,6 +37,14 @@ FROM invoice_runs WHERE id = $1`,
   runItems: 'SELECT line_id, bill_id, customer_tag_id, cents, percent FROM invoice_items WHERE run_id = $1 ORDER BY id',
   itemsForLines: 'SELECT line_id, customer_tag_id FROM invoice_items WHERE line_id = ANY($1::bigint[])',
   releaseItems: 'DELETE FROM invoice_items WHERE run_id = $1',
+  connection: `SELECT access_token, refresh_token, token_type, expires_at, scope, workspace, connected_by, connected_at, updated_at FROM campfire_connection WHERE id = 1`,
+  saveConnection: `INSERT INTO campfire_connection (id, access_token, refresh_token, token_type, expires_at, scope, workspace, connected_by, connected_at, updated_at)
+VALUES (1, $1, $2, $3, $4, $5, $6, $7, now(), now())
+ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_token = EXCLUDED.refresh_token, token_type = EXCLUDED.token_type,
+  expires_at = EXCLUDED.expires_at, scope = EXCLUDED.scope, workspace = EXCLUDED.workspace, updated_at = now(),
+  connected_by = CASE WHEN $8 THEN EXCLUDED.connected_by ELSE campfire_connection.connected_by END,
+  connected_at = CASE WHEN $8 THEN now() ELSE campfire_connection.connected_at END`,
+  deleteConnection: 'DELETE FROM campfire_connection WHERE id = 1',
 };
 
 export class ShareTakenError extends Error {}
@@ -54,9 +62,17 @@ export function memoryStore() {
   const items = [];
   let seq = 0;
   let runSeq = 0;
+  let connection = null;
   return {
     kind: 'memory',
     async init() {},
+    async getConnection() { return connection && { ...connection }; },
+    // fresh = a new connection (sets who connected and when); otherwise a token refresh.
+    async saveConnection(c, { fresh = false } = {}) {
+      const now = new Date().toISOString();
+      connection = { ...c, connected_by: fresh || !connection ? c.connected_by : connection.connected_by, connected_at: fresh || !connection ? now : connection.connected_at, updated_at: now };
+    },
+    async deleteConnection() { connection = null; },
     async getApprovers() { return new Map(approvers); },
     async setApprover(dealsTagId, email, actor) {
       if (email) approvers.set(dealsTagId, email); else approvers.delete(dealsTagId);
@@ -126,6 +142,14 @@ export async function postgresStore(connectionString) {
     async init() {
       await q(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
     },
+    async getConnection() {
+      const { rows } = await q(SQL.connection);
+      return rows[0] || null;
+    },
+    async saveConnection(c, { fresh = false } = {}) {
+      await q(SQL.saveConnection, [c.access_token, c.refresh_token, c.token_type, c.expires_at, c.scope, c.workspace == null ? null : JSON.stringify(c.workspace), c.connected_by || 'unknown', fresh]);
+    },
+    async deleteConnection() { await q(SQL.deleteConnection); },
     async getApprovers() {
       const { rows } = await q(SQL.approvers);
       return new Map(rows.map((r) => [Number(r.deals_tag_id), r.approver_email]));

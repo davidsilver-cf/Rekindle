@@ -143,3 +143,25 @@ Only admins create invoices, and only with `REKINDLE_WRITE=true`.
 **Setup:** `REKINDLE_INVOICE_PRODUCT_ID` = the **number** of the Campfire product to put on invoice lines (not its long UUID). On that product set **Invoice Credit Account** = 13190 Unbilled Receivable, untick **Recognize Revenue?** and **MRR item**, so each invoice posts Dr Accounts Receivable / Cr 13190 and clears the unbilled balance. (Left blank, the Invoice Credit Account falls back to deferred revenue.) Due dates use `invoice.termsDays` in `config/rekindle.json` (0 = due on the invoice date).
 
 **Re-apply tags** (Invoice history, admins) copies department and tags from the source bill lines onto an invoice Rekindle already created, e.g. one made before line tags were sent. If Campfire won't keep them, the run shows a "Tags:" note saying so.
+
+## Campfire app (OAuth)
+
+Rekindle can connect to Campfire as an OAuth app instead of using an API key: scoped access, tokens that renew themselves, one-click disconnect, and an entry on Campfire's Connections page.
+
+**In Campfire** (Settings → Apps; feature-flagged, ask Campfire to enable it):
+
+| Field | Value |
+|---|---|
+| Redirect URI | `https://<your-service>.onrender.com/auth/campfire/callback` |
+| Connect URL | `https://<your-service>.onrender.com/connect/campfire` |
+| Manage URL | `https://<your-service>.onrender.com/campfire/manage` |
+| Scopes | Accounting read + write; `openid`, `email`, `profile` |
+
+**On Render:** `CAMPFIRE_CLIENT_ID`, `CAMPFIRE_CLIENT_SECRET` (shown once when the app is created). Optional: `CAMPFIRE_OAUTH_SCOPES` (scopes to request; blank = the app's allowed scopes), `CAMPFIRE_AUTHORIZE_URL` / `CAMPFIRE_TOKEN_URL` (if Campfire's discovery document isn't found), `CAMPFIRE_CONTEXT_SECRET` (if Manage URL contexts are signed with something other than the client secret).
+
+**Then:** Rekindle → **Settings → Connect Campfire** (admins only), approve in Campfire, pick the workspace. From then on Rekindle calls Campfire with that connection; `CAMPFIRE_API_KEY` is only a fallback and can be deleted.
+
+- Tokens are stored in Postgres, encrypted with a key derived from `SESSION_SECRET` (changing it means reconnecting). They refresh before expiry, and once on a 401.
+- **Sign in with Campfire** is on the login page (asks only `openid email profile`). The same sign-in rules apply: `REKINDLE_ALLOWED_DOMAIN`, `REKINDLE_ALLOWED_EMAILS`, `REKINDLE_ADMINS`.
+- **Manage URL:** Campfire opens it with a signed `cf_ctx`. A valid one (HS256 with the client secret or `CAMPFIRE_CONTEXT_SECRET`, or RS256/ES256 from Campfire's JWKS) signs the person straight in; anything else sends them through Sign in with Campfire.
+- **Disconnect** (Settings) revokes the tokens and Rekindle goes back to demo data (or the API key, if set).

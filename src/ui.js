@@ -98,6 +98,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
     ['/deals', 'deals', 'Deals &amp; allocations', needSetup || null, true, `${needSetup} deal${needSetup === 1 ? '' : 's'} need${needSetup === 1 ? 's' : ''} setup`],
     ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null, false, 'Deals waiting for approval'],
     ['/invoices', 'invoices', 'Invoices', ctx.plan.customers.length || null, false, 'Invoices in this run'],
+    ['/settings', 'settings', 'Settings', null, false, ''],
   ];
   const nav = items
     .map(([href, key, label, count, alert, title]) => {
@@ -107,12 +108,12 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
     })
     .join('');
   const source = ctx.demo
-    ? `<div class="banner demo"><b>Demo data.</b> Showing test bill ABC_261106 from the repo. Add <code>CAMPFIRE_API_KEY</code> on Render to read live bills.</div>`
+    ? `<div class="banner demo"><b>Demo data.</b> Showing test bill ABC_261106 from the repo. <a href="/settings">Connect Campfire</a> to read live bills.</div>`
     : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell">
 <nav aria-label="Rekindle"><div class="brand">${FLAME}<div><b>Rekindle</b><small>Billback for Campfire</small></div></div>${nav}
-<div class="foot">${ctx.user ? `<span class="who"><b style="color:var(--ink)">${esc(ctx.user.name || ctx.user.email)}</b><span>${esc(ctx.user.email)}${ctx.admin ? ' · admin' : ''}</span></span><form method="post" action="/logout"><button class="btn sm" type="submit">Sign out</button></form>` : ''}<span>${ctx.demo ? 'Demo mode' : 'Live from Campfire'}</span><span>Approvals saved: ${ctx.storeKind === 'postgres' ? 'database' : 'not saved (no database)'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span></div></nav>
+<div class="foot">${ctx.user ? `<span class="who"><b style="color:var(--ink)">${esc(ctx.user.name || ctx.user.email)}</b><span>${esc(ctx.user.email)}${ctx.admin ? ' · admin' : ''}</span></span><form method="post" action="/logout"><button class="btn sm" type="submit">Sign out</button></form>` : ''}<span>${ctx.demo ? 'Demo mode' : `Live from Campfire${ctx.via ? ` · ${esc(ctx.via)}` : ''}`}</span><span>Approvals saved: ${ctx.storeKind === 'postgres' ? 'database' : 'not saved (no database)'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span></div></nav>
 <main>${source}${body}</main></div>${scripts.map((src) => `<script src="${src}" defer></script>`).join('')}</body></html>`;
 }
 
@@ -555,14 +556,58 @@ export function confirmInvoicesPage(ctx, chosen) {
   });
 }
 
-export function loginPage(error, { google = false, token = true } = {}) {
+export function loginPage(error, { google = false, campfire = false, token = true } = {}) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
 <body><main style="max-width:420px;margin:12vh auto"><div class="card pad" style="gap:16px;padding:28px">${FLAME}<h1>Rekindle</h1>
 ${error ? `<div class="banner bad">${esc(error)}</div>` : ''}
-${google ? '<a class="btn primary" href="/auth/google">Sign in with Google</a>' : ''}
-${google && token ? '<p class="sub" style="margin:0;text-align:center">or, for admins</p>' : ''}
+${campfire ? '<a class="btn primary" href="/auth/campfire">Sign in with Campfire</a>' : ''}
+${google ? `<a class="btn${campfire ? '' : ' primary'}" href="/auth/google">Sign in with Google</a>` : ''}
+${(google || campfire) && token ? '<p class="sub" style="margin:0;text-align:center">or, for admins</p>' : ''}
 ${token ? `<form method="post" action="/login" style="display:flex;flex-direction:column;gap:10px"><label for="token" class="small muted">Access token</label>
 <input id="token" name="token" type="password" autocomplete="current-password" required style="min-height:44px;padding:0 12px;border:1px solid #D6D1C9;border-radius:8px;font:inherit">
-<button class="btn${google ? '' : ' primary'}" type="submit">Sign in with token</button></form>
+<button class="btn${google || campfire ? '' : ' primary'}" type="submit">Sign in with token</button></form>
 <p class="sub" style="margin:0">The token is <code>REKINDLE_ADMIN_TOKEN</code> in the Render service's Environment tab.</p>` : ''}</div></main></body></html>`;
+}
+
+const atET = (v) => (v ? new Date(v).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }) + ' ET' : '—');
+const workspaceName = (w) => (w == null ? null : typeof w === 'object' ? w.name || w.title || w.id || JSON.stringify(w) : String(w));
+
+export function settingsPage(ctx, flash = null) {
+  const st = ctx.settings;
+  const c = st.connection;
+  const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}">${esc(flash.text)}</div>` : '';
+  const row = (k, v) => `<tr><th style="width:200px">${k}</th><td>${v}</td></tr>`;
+  let status;
+  if (!st.appConfigured) {
+    status = `<div class="banner bad"><b>The Campfire app isn't set up in Rekindle.</b> Add <code>CAMPFIRE_CLIENT_ID</code> and <code>CAMPFIRE_CLIENT_SECRET</code> on Render (Environment), from the app under Settings → Apps in Campfire.</div>`;
+  } else if (c) {
+    status = `<div class="banner good"><b>Connected to Campfire</b>${workspaceName(c.workspace) ? ` · ${esc(workspaceName(c.workspace))}` : ''}. Rekindle reads bills and creates invoices with this connection${st.apiKey ? '; the API key on Render is no longer used and can be deleted' : ''}.</div>`;
+  } else {
+    status = `<div class="banner ${st.apiKey ? 'demo' : 'bad'}"><b>Not connected.</b> ${st.apiKey ? 'Rekindle is using the API key on Render for now.' : 'Rekindle is showing demo data.'} Connect to use the Rekindle app in Campfire instead.</div>`;
+  }
+  const actions = !st.appConfigured ? '' : ctx.admin
+    ? `<div class="pad" style="flex-direction:row;gap:8px;align-items:center"><a class="btn primary" href="/connect/campfire">${c ? 'Reconnect Campfire' : 'Connect Campfire'}</a>${c ? '<form method="post" action="/connect/campfire/disconnect"><button class="btn" type="submit">Disconnect</button></form>' : ''}<span class="small muted">Campfire asks you to approve Rekindle's access and pick the workspace.</span></div>`
+    : '<div class="pad"><span class="small muted">Only admins can connect or disconnect Campfire.</span></div>';
+  const details = c ? `<div class="scroll"><table><tbody>
+${row('Workspace', esc(workspaceName(c.workspace) || 'not reported by Campfire'))}
+${row('Connected by', esc(c.connectedBy))}
+${row('Connected', esc(atET(c.connectedAt)))}
+${row('Access', esc(c.scope || 'not reported by Campfire'))}
+${row('Current token expires', `${esc(atET(c.expiresAt))}${c.refreshable ? ' · renewed automatically' : ' · <span class="no">no refresh token: reconnect when it expires</span>'}`)}
+</tbody></table></div>` : '';
+  const ep = st.endpoints;
+  const tech = !st.appConfigured ? '' : `<details class="card pad"><summary><b>Technical details</b></summary><div class="scroll"><table><tbody>
+${row('Redirect URI', '<code>/auth/campfire/callback</code> on this site')}
+${row('Connect URL', '<code>/connect/campfire</code>')}
+${row('Manage URL', '<code>/campfire/manage</code>')}
+${row('Scopes requested', st.scopesWanted ? esc(st.scopesWanted) : "the app's allowed scopes (set <code>CAMPFIRE_OAUTH_SCOPES</code> to narrow them)")}
+${ep?.error ? row('Endpoints', `<span class="no">${esc(ep.error)}</span>`) : ep ? `${row('Authorize', `<code>${esc(ep.authorize)}</code>`)}${row('Token', `<code>${esc(ep.token)}</code>`)}${row('Found via', esc(ep.from))}${ep.scopes ? row('Scopes Campfire offers', esc(ep.scopes.join(' '))) : ''}` : ''}
+</tbody></table></div></details>`;
+  return layout({
+    active: 'settings', title: 'Settings', ctx,
+    body: `${flashHtml}<div class="head"><div><h1>Settings</h1><p class="sub">How Rekindle connects to Campfire.</p></div></div>
+${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${esc(ctx.loadError)}</div>` : ''}
+<div class="card"><div class="pad"><h2 style="margin:0">Campfire connection</h2>${status}</div>${details}${actions}</div>
+${tech}`,
+  });
 }

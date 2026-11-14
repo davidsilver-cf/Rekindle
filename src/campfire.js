@@ -1,12 +1,66 @@
-// Minimal Campfire API client (read-only for now).
-// Auth: Authorization: Token <key>, read from the CAMPFIRE_API_KEY env var.
+// Minimal Campfire API client.
+// Auth: the OAuth connection made on Rekindle's Settings screen when there is
+// one (refreshed automatically), else Authorization: Token <CAMPFIRE_API_KEY>.
+import { getStore } from './store.js';
+import { seal, unseal, refreshConnection } from './campfire-oauth.js';
 
 const BASE_URL = process.env.CAMPFIRE_BASE_URL || 'https://api.meetcampfire.com';
 
 function apiKey() {
   const key = process.env.CAMPFIRE_API_KEY;
-  if (!key) throw new Error('CAMPFIRE_API_KEY is not set. Add it as an environment variable (never commit it).');
+  if (!key) throw new Error('Rekindle isn\'t connected to Campfire. Connect it on the Settings screen (or set CAMPFIRE_API_KEY).');
   return key;
+}
+
+// ---- The OAuth connection (cached in memory; the database is the record).
+let conn; // undefined = not loaded yet, null = none
+let refreshing = null;
+const normType = (t) => (String(t || 'Bearer').toLowerCase() === 'bearer' ? 'Bearer' : t);
+
+export async function loadConnection() {
+  try {
+    const row = await (await getStore()).getConnection();
+    conn = row ? { ...row, access_token: unseal(row.access_token), refresh_token: unseal(row.refresh_token) } : null;
+  } catch (err) {
+    console.log(JSON.stringify({ event: 'connection_load_failed', error: err.message }));
+    conn = null;
+  }
+  return conn;
+}
+export const connection = () => conn || null;
+export const isConnected = () => Boolean(conn);
+export async function connectionLoaded() { if (conn === undefined) await loadConnection(); return conn; }
+
+export async function saveConnection(c, { connectedBy, fresh = true } = {}) {
+  const store = await getStore();
+  await store.saveConnection({ ...c, access_token: seal(c.access_token), refresh_token: seal(c.refresh_token), connected_by: connectedBy }, { fresh });
+  return loadConnection();
+}
+export async function clearConnection() {
+  await (await getStore()).deleteConnection();
+  conn = null;
+}
+
+// One refresh at a time, shared by every request that needs it.
+async function refreshNow() {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const next = await refreshConnection(conn);
+      await saveConnection(next, { fresh: false });
+      console.log(JSON.stringify({ event: 'campfire_token_refreshed' }));
+    })().finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
+async function authHeader({ forceRefresh = false } = {}) {
+  await connectionLoaded();
+  if (conn) {
+    const expiring = conn.expires_at && new Date(conn.expires_at).getTime() < Date.now() + 60_000;
+    if (forceRefresh || expiring) await refreshNow();
+    return `${normType(conn.token_type)} ${conn.access_token}`;
+  }
+  return `Token ${apiKey()}`;
 }
 
 async function request(path, params = {}, { method = 'GET', body } = {}) {
@@ -16,11 +70,13 @@ async function request(path, params = {}, { method = 'GET', body } = {}) {
     for (const item of [].concat(v)) url.searchParams.append(k, String(item));
   }
 
+  let refreshed = false;
   for (let attempt = 1; attempt <= 5; attempt++) {
+    const auth = await authHeader();
     const res = await fetch(url, {
       method,
       headers: {
-        Authorization: `Token ${apiKey()}`,
+        Authorization: auth,
         Accept: 'application/json',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
@@ -30,6 +86,13 @@ async function request(path, params = {}, { method = 'GET', body } = {}) {
       // Campfire allows 10 requests/second per API user and says how long to wait.
       const wait = Number(res.headers.get('retry-after') || 1);
       await new Promise((r) => setTimeout(r, wait * 1000));
+      continue;
+    }
+    if (res.status === 401 && conn && !refreshed) {
+      // The access token may have been revoked or expired early: refresh once.
+      refreshed = true;
+      // Another call may already have refreshed it; only refresh a token that's still current.
+      if (conn && `${normType(conn.token_type)} ${conn.access_token}` === auth) await authHeader({ forceRefresh: true });
       continue;
     }
     if (!res.ok) {
@@ -100,12 +163,19 @@ export async function uploadFile({ model, objectId, filename, data, type = 'appl
   const url = new URL('/ca/api/file/upload', BASE_URL);
   url.searchParams.set('model', model);
   url.searchParams.set('object_id', String(objectId));
+  let refreshed = false;
   for (let attempt = 1; attempt <= 5; attempt++) {
     const form = new FormData();
     form.append('file', new Blob([data], { type }), filename);
-    const res = await fetch(url, { method: 'POST', headers: { Authorization: `Token ${apiKey()}` }, body: form });
+    const auth = await authHeader();
+    const res = await fetch(url, { method: 'POST', headers: { Authorization: auth }, body: form });
     if (res.status === 429) {
       await new Promise((r) => setTimeout(r, Number(res.headers.get('retry-after') || 1) * 1000));
+      continue;
+    }
+    if (res.status === 401 && conn && !refreshed) {
+      refreshed = true;
+      if (`${normType(conn.token_type)} ${conn.access_token}` === auth) await authHeader({ forceRefresh: true });
       continue;
     }
     if (!res.ok) {

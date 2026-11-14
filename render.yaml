@@ -32,6 +32,11 @@ services:
       # Postgres: the Internal Database URL of a Render Postgres instance.
       - key: DATABASE_URL
         sync: false
+      # Campfire OAuth app (Settings → Apps in Campfire); replaces CAMPFIRE_API_KEY once connected.
+      - key: CAMPFIRE_CLIENT_ID
+        sync: false
+      - key: CAMPFIRE_CLIENT_SECRET
+        sync: false
       # Google sign-in (OAuth client from Google Cloud Console).
       - key: GOOGLE_CLIENT_ID
         sync: false

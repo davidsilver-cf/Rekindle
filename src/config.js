@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { effectiveConfig } from './setup.js';
+import { isConnected } from './campfire.js';
 
 // The starter file. Deal setup saved in Rekindle and live Campfire tags are
 // layered on top of it by loadConfig().
@@ -8,8 +9,9 @@ export const config = JSON.parse(readFileSync(new URL('../config/rekindle.json',
 // Writing to Campfire is OFF unless REKINDLE_WRITE is exactly "true".
 export const writeEnabled = () => process.env.REKINDLE_WRITE === 'true';
 
-// Demo mode: no API key yet, or explicitly asked for. Uses the test bill in the repo.
-export const demoMode = () => process.env.REKINDLE_DEMO === 'true' || !process.env.CAMPFIRE_API_KEY;
+// Demo mode: not connected to Campfire (no OAuth connection, no API key), or
+// explicitly asked for. Uses the test bill in the repo.
+export const demoMode = () => process.env.REKINDLE_DEMO === 'true' || (!process.env.CAMPFIRE_API_KEY && !isConnected());
 
 // The config the engine runs on right now: live Deals and Billback Customer
 // tags from Campfire (not in demo mode) plus the setup saved in Rekindle.

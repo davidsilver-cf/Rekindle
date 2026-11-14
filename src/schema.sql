@@ -99,3 +99,18 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   UNIQUE (line_id, customer_tag_id)
 );
 CREATE INDEX IF NOT EXISTS invoice_items_run_idx ON invoice_items (run_id);
+
+-- Rekindle's OAuth connection to Campfire (one per deployment for now).
+-- Tokens are encrypted by the app before they get here.
+CREATE TABLE IF NOT EXISTS campfire_connection (
+  id             int PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  access_token   text NOT NULL,
+  refresh_token  text,
+  token_type     text NOT NULL DEFAULT 'Bearer',
+  expires_at     timestamptz,
+  scope          text,
+  workspace      jsonb,
+  connected_by   text NOT NULL,
+  connected_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);

@@ -21,9 +21,11 @@ import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters } from './ui.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
+import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
+import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection } from './campfire.js';
 import { getStore, StoreError, ShareTakenError } from './store.js';
 
 const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice };
@@ -40,6 +42,7 @@ const STATIC = {
 };
 const BILL_TOPICS = new Set(['Bill.created', 'Bill.updated']);
 const OAUTH_COOKIE = 'rekindle_oauth';
+const CF_COOKIE = 'rekindle_cf';
 const EMAIL_RE = /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/;
 
 
@@ -142,6 +145,7 @@ async function screenContext(user) {
     admin: isAdmin(user),
     storeKind: store.kind,
     demo: demoMode(),
+    via: connection() ? 'Campfire app' : 'API key',
     write: writeEnabled(),
     loadedAt: new Date().toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }) + ' ET',
   };
@@ -197,12 +201,13 @@ const SCREENS = {
 async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const user = currentUser(req);
+  await connectionLoaded();
 
   if (req.method === 'GET' && url.pathname === '/health') {
     let database = false;
     let databaseError;
     try { database = (await getStore()).kind === 'postgres'; } catch (err) { databaseError = err.message; }
-    return send(res, 200, { ok: true, write: writeEnabled(), demo: demoMode(), database, ...(databaseError ? { databaseError } : {}), google: googleConfigured() }, 'application/json');
+    return send(res, 200, { ok: true, write: writeEnabled(), demo: demoMode(), database, ...(databaseError ? { databaseError } : {}), google: googleConfigured(), campfireApp: oauthConfigured(), campfireConnected: Boolean(connection()), apiKey: Boolean(process.env.CAMPFIRE_API_KEY) }, 'application/json');
   }
 
   if (req.method === 'GET' && STATIC[url.pathname]) {
@@ -215,7 +220,7 @@ async function handle(req, res) {
   }
 
   // ---- Sign in / out
-  const loginOpts = { google: googleConfigured(), token: Boolean(process.env.REKINDLE_ADMIN_TOKEN) };
+  const loginOpts = { google: googleConfigured(), campfire: oauthConfigured(), token: Boolean(process.env.REKINDLE_ADMIN_TOKEN) };
   if (url.pathname === '/login') {
     if (req.method === 'GET') return html(res, loginPage(null, loginOpts));
     if (req.method === 'POST') {
@@ -253,6 +258,111 @@ async function handle(req, res) {
       console.log(JSON.stringify({ event: 'login_error', error: err.message }));
       return html(res, loginPage('Google sign-in failed. Try again.', loginOpts), 400);
     }
+  }
+
+  // ---- Campfire OAuth app.
+  // /connect/campfire is the app's Connect URL (Campfire's Connections page
+  // sends people here): Rekindle gets API access to the workspace.
+  // /auth/campfire is "Sign in with Campfire": only who you are.
+  if (req.method === 'GET' && (url.pathname === '/connect/campfire' || url.pathname === '/auth/campfire')) {
+    if (!oauthConfigured()) return html(res, loginPage('The Campfire app isn\'t set up yet: add CAMPFIRE_CLIENT_ID and CAMPFIRE_CLIENT_SECRET on Render.', loginOpts), 503);
+    const purpose = url.pathname === '/connect/campfire' ? 'connect' : 'login';
+    try {
+      const a = await startAuth(req, purpose);
+      const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+      return redirect(res, a.url, { 'Set-Cookie': `${CF_COOKIE}=${[a.state, a.nonce, a.verifier, a.purpose].join('.')}; HttpOnly; SameSite=Lax; Path=/auth; Max-Age=600${secure}` });
+    } catch (err) {
+      console.log(JSON.stringify({ event: 'campfire_auth_error', error: err.message }));
+      return html(res, loginPage(err.message, loginOpts), 502);
+    }
+  }
+  if (req.method === 'GET' && url.pathname === '/auth/campfire/callback') {
+    const [state, nonce, verifier, purpose] = (cookieValue(req, CF_COOKIE) || '').split('.');
+    const clear = `${CF_COOKIE}=; HttpOnly; SameSite=Lax; Path=/auth; Max-Age=0`;
+    const fail = (msg, status = 400) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': clear }); res.end(loginPage(msg, loginOpts)); };
+    if (url.searchParams.get('error')) return fail(`Campfire said: ${url.searchParams.get('error_description') || url.searchParams.get('error')}.`);
+    if (!state || !safeEqual(state, url.searchParams.get('state')) || !url.searchParams.get('code')) return fail('Campfire sign-in expired or was interrupted. Try again.');
+    try {
+      const { who, connection: conn } = await finishAuth(req, url.searchParams.get('code'), { verifier, nonce });
+      if (!allowedToSignIn(who.email)) {
+        console.log(JSON.stringify({ event: 'login_denied', email: who.email, via: 'campfire' }));
+        return fail(`${who.email} isn't allowed to use Rekindle. Ask an admin to add you.`, 403);
+      }
+      const store = await getStore();
+      let to = '/';
+      if (purpose === 'connect') {
+        // Only an admin may (re)point Rekindle at a Campfire workspace.
+        if (!isAdmin(who) && !isAdmin(user)) return fail(`Only Rekindle admins can connect Campfire. ${who.email} isn't in REKINDLE_ADMINS.`, 403);
+        await saveConnection({ ...conn, workspace: conn.workspace || who.workspace || null }, { connectedBy: who.email, fresh: true });
+        await store.audit(who.email, 'campfire_connected', { scope: conn.scope || null });
+        to = '/settings?connected=1';
+      } else {
+        await store.audit(who.email, 'sign_in', { via: 'campfire' });
+      }
+      res.writeHead(303, { Location: to, 'Set-Cookie': [sessionCookie(makeSession({ email: who.email, name: who.name, via: 'campfire' }), req), clear] });
+      return res.end();
+    } catch (err) {
+      console.log(JSON.stringify({ event: 'campfire_callback_error', error: err.message }));
+      return fail(`Campfire sign-in failed: ${err.message}`);
+    }
+  }
+  // The app's Manage URL: Campfire opens it with a signed cf_ctx naming the
+  // person and workspace. A valid one signs them straight in; otherwise they
+  // go through "Sign in with Campfire" (one click if they're signed in there).
+  if (req.method === 'GET' && url.pathname === '/campfire/manage') {
+    const ctxToken = url.searchParams.get('cf_ctx');
+    if (ctxToken) {
+      try {
+        const who = await verifyContext(ctxToken);
+        if (who.email && allowedToSignIn(who.email)) {
+          const store = await getStore();
+          await store.audit(who.email, 'sign_in', { via: 'campfire_manage' });
+          return redirect(res, '/', { 'Set-Cookie': sessionCookie(makeSession({ email: who.email, name: who.name, via: 'campfire' }), req) });
+        }
+        console.log(JSON.stringify({ event: 'manage_denied', email: who.email }));
+      } catch (err) {
+        console.log(JSON.stringify({ event: 'manage_ctx_rejected', error: err.message }));
+      }
+    }
+    if (user) return redirect(res, '/');
+    return redirect(res, oauthConfigured() ? '/auth/campfire' : '/login');
+  }
+
+  // ---- Settings: the Campfire connection
+  if (req.method === 'GET' && url.pathname === '/settings') {
+    if (!user) return redirect(res, '/login');
+    let ctx;
+    try { ctx = await screenContext(user); } catch (err) {
+      // Still show Settings when Campfire can't be read: that's where it's fixed.
+      const store = await getStore().catch(() => ({ kind: 'error' }));
+      ctx = { config: { deals: [] }, plan: { lines: [], customers: [] }, groups: null, user, admin: isAdmin(user), storeKind: store.kind, demo: demoMode(), write: writeEnabled(), loadedAt: '—', loadError: err.message };
+    }
+    let endpoints = null;
+    if (oauthConfigured()) {
+      try { const d = await discovery(); endpoints = { authorize: d.authorization_endpoint, token: d.token_endpoint, scopes: d.scopes_supported || null, from: d._from || 'Render settings' }; }
+      catch (err) { endpoints = { error: err.message }; }
+    }
+    const conn = connection();
+    const s = url.searchParams;
+    const flash = s.has('connected') ? { ok: true, text: 'Connected to Campfire. Rekindle now reads and writes with this connection.' }
+      : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' } : null;
+    return html(res, settingsPage({ ...ctx, settings: {
+      appConfigured: oauthConfigured(),
+      apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
+      scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',
+      endpoints,
+      connection: conn && { connectedBy: conn.connected_by, connectedAt: conn.connected_at, expiresAt: conn.expires_at, scope: conn.scope, workspace: conn.workspace, refreshable: Boolean(conn.refresh_token) },
+    } }, flash));
+  }
+  if (req.method === 'POST' && url.pathname === '/connect/campfire/disconnect') {
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can disconnect Campfire.');
+    const conn = connection();
+    if (conn) {
+      await revoke(conn).catch(() => {});
+      await clearConnection();
+      await (await getStore()).audit(user.email, 'campfire_disconnected', {});
+    }
+    return redirect(res, '/settings?disconnected=1');
   }
 
   // ---- Screens and actions need a signed-in user
@@ -479,6 +589,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const port = Number(process.env.PORT || 3000);
   createServer().listen(port, async () => {
     const store = await getStore().catch((err) => { console.log(JSON.stringify({ event: 'store_error', error: err.message })); return { kind: 'error' }; });
-    console.log(JSON.stringify({ event: 'started', port, write: writeEnabled(), demo: demoMode(), store: store.kind, google: googleConfigured() }));
+    await loadConnection();
+    console.log(JSON.stringify({ event: 'started', port, write: writeEnabled(), demo: demoMode(), store: store.kind, google: googleConfigured(), campfireConnected: Boolean(connection()) }));
   });
 }
