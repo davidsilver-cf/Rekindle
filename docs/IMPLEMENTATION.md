@@ -1,3 +1,5 @@
+<img src="images/rekindle-icon.png" alt="Rekindle logo" width="96">
+
 # Rekindle Implementation Guide
 
 November 14, 2026 · David Silver
@@ -76,7 +78,7 @@ Set up the account, tags, field and product Rekindle reads, then note each one's
    | Class (optional) | the customer's classes | Copied onto invoice lines |
 3. **Custom field.** Add a bill-line custom field **Default Billing Type** (`custom_field_defaultbillingtype`) with options Deal, Fund, Allocation, Expense. AP can set it by hand; Rekindle fills it when blank.
 4. **Product.** Create **Reimbursable Item** (Products and Services). Set **Invoice Credit Account** = 13190 Unbilled Receivable, and untick **Recognize Revenue** and **MRR item**. Note its number (for example 699767), not its long ID.
-5. **Expense accounts.** Decide which expense account each Recharge Category's unbilled costs move to when a deal cost isn't billed back (for example Legal → 6100 Legal expense). You'll set these in Rekindle on Settings → Reclass accounts.
+5. **Expense accounts.** Decide which expense account each Recharge Category's unbilled costs move to when a deal cost isn't billed back (for example Legal → 6100 Legal expense). You'll set these in Rekindle on Settings → Reclass accounts, where **Fill by name** sets every unset category to the expense account tagged with it or named the same (review them after).
 6. **AP process.** Make sure AP codes reimbursable lines to 13190 with a Deals tag, a Recharge Category, and Billback Status = Pending.
 
 Update `config/rekindle.json` in the repo with the customer's tag group IDs, Billback Status tag IDs, account number and invoice branding. To find the IDs, ask Claude to read them through the Campfire connector.
@@ -170,9 +172,11 @@ In Campfire, **Settings → Developer → Webhooks → New Webhook**: URL `https
 
 Run one real bill end to end with writing switched on before handing over; it catches tag, permission and posting problems while you're still on the project.
 
-**New deals.** On **Deals & Allocations**, admins press **New deal**: name, billing type, who it bills (an existing Billback Customer or **New company**, which creates the Campfire customer and its linked Billback Customer tag), and the approver. Rekindle creates the Deals tag in Campfire and sets the deal up in one step; an Allocation deal then needs its owners. Deals tags created directly in Campfire still work: they show **Needs setup**.
+**New deals.** On **Deals & Allocations**, admins press **New deal**: the deal name, billing type, who it bills, and the approver. For who it bills, pick an existing Billback Customer or **New company**, which creates the Campfire customer and its linked Billback Customer tag. Rekindle creates the Deals tag in Campfire and sets the deal up in one step; an Allocation deal then needs its owners. Records that already exist are found by name and reused, so trying again never duplicates. Deals tags created directly in Campfire still work: they show **Needs setup**.
 
 **Set up each deal.** Open **Deals & Allocations**. Every Deals tag in Campfire is listed; new ones show **Needs setup** and their lines are held as exceptions until set up. For each deal choose the billing type, then the billback customer (Deal or Fund), or the owners with % and start dates (Allocation; owners in force must total 100% on every date). Set the deal's **approver**.
+
+**Allocation splits over time.** An Allocation deal's page shows **Splits over time**: each period's owners and shares, with the one in force today highlighted and any period not totalling 100% flagged. Each bill line uses the split in force on its **bill date** (the bill header's date), not the date it's stamped or invoiced, and lines already invoiced keep the split they were billed on. To change ownership, use **Change the split**: pick the date the new split starts and the new owners and shares (pre-filled with the current split). Rekindle ends the current owners the day before and starts the new ones on that date.
 
 **Test with one bill.** Enter a test bill with a few 13190 lines across a Deal, a Fund and an Allocation deal, then:
 
