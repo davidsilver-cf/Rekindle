@@ -51,6 +51,19 @@ ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_tok
 ON CONFLICT (campfire_user_id) DO UPDATE SET workspace = EXCLUDED.workspace, email = EXCLUDED.email, linked_at = now()`,
   deleteUserLink: 'DELETE FROM campfire_user_links WHERE campfire_user_id = $1',
   admins: 'SELECT email, added_by, added_at FROM rekindle_admins ORDER BY email',
+  reclassAccounts: 'SELECT category_tag_id, category_name, account_id, account_label, updated_by, updated_at FROM reclass_accounts',
+  saveReclassAccount: `INSERT INTO reclass_accounts (category_tag_id, category_name, account_id, account_label, updated_by, updated_at) VALUES ($1, $2, $3, $4, $5, now())
+ON CONFLICT (category_tag_id) DO UPDATE SET category_name = EXCLUDED.category_name, account_id = EXCLUDED.account_id, account_label = EXCLUDED.account_label, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+  deleteReclassAccount: 'DELETE FROM reclass_accounts WHERE category_tag_id = $1',
+  insertReclass: `INSERT INTO reclass_runs (ref, entity_id, je_date, total_cents, status, payload, created_by) VALUES ($1, $2, $3, $4, 'creating', $5, $6) RETURNING id`,
+  insertReclassItem: 'INSERT INTO reclass_items (run_id, line_id, bill_id, cents) VALUES ($1, $2, $3, $4)',
+  reclassRuns: `SELECT id, ref, entity_id, to_char(je_date, 'YYYY-MM-DD') AS je_date, total_cents, status, campfire_je_id, je_number, error, created_by, created_at, updated_at,
+  (SELECT count(*) FROM reclass_items i WHERE i.run_id = r.id) AS line_count FROM reclass_runs r ORDER BY created_at DESC, id DESC LIMIT $1`,
+  reclassRun: `SELECT id, ref, entity_id, to_char(je_date, 'YYYY-MM-DD') AS je_date, total_cents, status, campfire_je_id, je_number, error, payload, created_by, created_at, updated_at FROM reclass_runs WHERE id = $1`,
+  reclassItems: 'SELECT line_id, bill_id, cents FROM reclass_items WHERE run_id = $1 ORDER BY id',
+  reclassedLines: 'SELECT line_id FROM reclass_items',
+  reclassForLines: `SELECT i.line_id, r.id AS run_id, r.je_number, r.campfire_je_id, r.status FROM reclass_items i JOIN reclass_runs r ON r.id = i.run_id WHERE i.line_id = ANY($1::bigint[])`,
+  releaseReclassItems: 'DELETE FROM reclass_items WHERE run_id = $1',
   addAdmin: 'INSERT INTO rekindle_admins (email, added_by) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING',
   removeAdmin: 'DELETE FROM rekindle_admins WHERE email = $1',
   runByInvoice: `SELECT id FROM invoice_runs WHERE campfire_invoice_id = $1 ORDER BY id DESC LIMIT 1`,
@@ -76,6 +89,10 @@ export function memoryStore() {
   let connection = null;
   const userLinks = new Map();
   const admins = new Map();
+  const reclassAccounts = new Map();
+  const reclassRuns = [];
+  const reclassItems = [];
+  let reclassSeq = 0;
   return {
     kind: 'memory',
     async init() {},
@@ -91,6 +108,23 @@ export function memoryStore() {
     async saveUserLink({ campfireUserId, workspace, email }) { userLinks.delete(String(campfireUserId)); userLinks.set(String(campfireUserId), { campfire_user_id: String(campfireUserId), workspace: workspace == null ? null : String(workspace), email, linked_at: new Date().toISOString() }); },
     async deleteUserLink(id) { userLinks.delete(String(id)); },
     async listAdmins() { return [...admins.values()].sort((a, b) => a.email.localeCompare(b.email)); },
+    async getReclassAccounts() { return new Map([...reclassAccounts.values()].map((a) => [Number(a.category_tag_id), { ...a }])); },
+    async saveReclassAccount({ categoryTagId, categoryName, accountId, accountLabel, by }) { reclassAccounts.set(Number(categoryTagId), { category_tag_id: Number(categoryTagId), category_name: categoryName, account_id: Number(accountId), account_label: accountLabel || null, updated_by: by, updated_at: new Date().toISOString() }); },
+    async deleteReclassAccount(id) { reclassAccounts.delete(Number(id)); },
+    async reserveReclass(run, lines) {
+      if (lines.some((l) => reclassItems.some((i) => i.line_id === l.lineId))) throw new ShareTakenError('already reclassed');
+      const id = ++reclassSeq;
+      reclassRuns.push({ id, ...run, status: 'creating', campfire_je_id: null, je_number: null, error: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      for (const l of lines) reclassItems.push({ run_id: id, line_id: l.lineId, bill_id: l.billId, cents: l.cents });
+      return id;
+    },
+    async updateReclass(id, fields) { const r = reclassRuns.find((x) => x.id === Number(id)); Object.assign(r, fields, { updated_at: new Date().toISOString() }); },
+    async releaseReclass(id, error) { await this.updateReclass(id, { status: 'failed', error }); for (let i = reclassItems.length - 1; i >= 0; i--) if (reclassItems[i].run_id === Number(id)) reclassItems.splice(i, 1); },
+    async listReclass(limit = 30) { return reclassRuns.slice().reverse().slice(0, limit).map(({ payload, ...r }) => ({ ...r, line_count: reclassItems.filter((i) => i.run_id === r.id).length })); },
+    async getReclass(id) { const r = reclassRuns.find((x) => x.id === Number(id)); return r ? { ...r } : null; },
+    async reclassRunItems(id) { return reclassItems.filter((i) => i.run_id === Number(id)).map((i) => ({ ...i })); },
+    async reclassedLines() { return new Set(reclassItems.map((i) => i.line_id)); },
+    async reclassForLines(lineIds) { const want = new Set(lineIds.map(Number)); return reclassItems.filter((i) => want.has(i.line_id)).map((i) => { const r = reclassRuns.find((x) => x.id === i.run_id); return { line_id: i.line_id, run_id: r.id, je_number: r.je_number, campfire_je_id: r.campfire_je_id, status: r.status }; }); },
     async addAdmin(email, by) { if (!admins.has(email)) admins.set(email, { email, added_by: by, added_at: new Date().toISOString() }); },
     async removeAdmin(email) { admins.delete(email); },
     async getApprovers() { return new Map(approvers); },
@@ -186,6 +220,34 @@ export async function postgresStore(connectionString) {
     async saveUserLink({ campfireUserId, workspace, email }) { await q(SQL.saveUserLink, [String(campfireUserId), workspace == null ? null : String(workspace), email]); },
     async deleteUserLink(id) { await q(SQL.deleteUserLink, [String(id)]); },
     async listAdmins() { return (await q(SQL.admins)).rows; },
+    async getReclassAccounts() { return new Map((await q(SQL.reclassAccounts)).rows.map((a) => [Number(a.category_tag_id), { ...a, category_tag_id: Number(a.category_tag_id), account_id: Number(a.account_id) }])); },
+    async saveReclassAccount({ categoryTagId, categoryName, accountId, accountLabel, by }) { await q(SQL.saveReclassAccount, [categoryTagId, categoryName, accountId, accountLabel || null, by]); },
+    async deleteReclassAccount(id) { await q(SQL.deleteReclassAccount, [id]); },
+    async reserveReclass(run, lines) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows } = await client.query(SQL.insertReclass, [run.ref, run.entity_id, run.je_date, run.total_cents, JSON.stringify(run.payload), run.created_by]);
+        for (const l of lines) await client.query(SQL.insertReclassItem, [rows[0].id, l.lineId, l.billId, l.cents]);
+        await client.query('COMMIT');
+        return Number(rows[0].id);
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (err.code === '23505') throw new ShareTakenError('already reclassed');
+        throw err;
+      } finally { client.release(); }
+    },
+    async updateReclass(id, fields) {
+      const keys = Object.keys(fields).filter((k) => ['status', 'campfire_je_id', 'je_number', 'error'].includes(k));
+      if (!keys.length) return;
+      await q(`UPDATE reclass_runs SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1`, [id, ...keys.map((k) => fields[k])]);
+    },
+    async releaseReclass(id, error) { await this.updateReclass(id, { status: 'failed', error }); await q(SQL.releaseReclassItems, [id]); },
+    async listReclass(limit = 30) { return (await q(SQL.reclassRuns, [limit])).rows.map((r) => ({ ...r, id: Number(r.id), total_cents: Number(r.total_cents), line_count: Number(r.line_count), campfire_je_id: r.campfire_je_id ? Number(r.campfire_je_id) : null })); },
+    async getReclass(id) { const r = (await q(SQL.reclassRun, [id])).rows[0]; return r ? { ...r, id: Number(r.id), total_cents: Number(r.total_cents), entity_id: r.entity_id ? Number(r.entity_id) : null, campfire_je_id: r.campfire_je_id ? Number(r.campfire_je_id) : null } : null; },
+    async reclassRunItems(id) { return (await q(SQL.reclassItems, [id])).rows.map((r) => ({ line_id: Number(r.line_id), bill_id: Number(r.bill_id), cents: Number(r.cents) })); },
+    async reclassedLines() { return new Set((await q(SQL.reclassedLines)).rows.map((r) => Number(r.line_id))); },
+    async reclassForLines(lineIds) { return (await q(SQL.reclassForLines, [lineIds])).rows.map((r) => ({ ...r, line_id: Number(r.line_id), run_id: Number(r.run_id), campfire_je_id: r.campfire_je_id ? Number(r.campfire_je_id) : null })); },
     async addAdmin(email, by) { await q(SQL.addAdmin, [email, by]); },
     async removeAdmin(email) { await q(SQL.removeAdmin, [email]); },
     async getApprovers() {

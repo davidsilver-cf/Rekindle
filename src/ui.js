@@ -133,6 +133,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
     ['/deals', 'deals', 'Deals &amp; Allocations', needSetup || null, true, `${needSetup} deal${needSetup === 1 ? '' : 's'} need${needSetup === 1 ? 's' : ''} setup`],
     ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null, false, 'Deals waiting for approval'],
     ['/invoices', 'invoices', 'Invoices', ctx.plan.customers.length || null, false, 'Invoices in this run'],
+    ['/reclass', 'reclass', 'Reclass', ctx.reclass?.waiting?.length || null, false, 'Expense lines waiting to be reclassed'],
     ['/settings', 'settings', 'Settings', null, false, ''],
   ];
   const nav = items
@@ -166,7 +167,7 @@ function customerCell(l) {
     const fix = /needs setup|Tag Setup row/.test(l.exception) && l.dealsTag ? ` <a href="/deals?deal=${encodeURIComponent(l.dealsTag)}">Set up</a>` : '';
     return `<span class="no">${esc(l.exception)}</span>${fix}`;
   }
-  if (l.billingType === 'Expense') return '<span class="muted">Not billed back · reclass</span>';
+  if (l.billingType === 'Expense') return `<span class="muted">Not billed back · <a href="/reclass">${l.status === 'To be expensed' ? 'to be expensed' : 'reclass'}</a></span>`;
   if (l.billingType === 'Allocation') {
     return `<a href="/deals?deal=${encodeURIComponent(l.dealsTag)}">Split ${l.billTo.map((b) => b.percent).join(' / ')}</a>`;
   }
@@ -667,6 +668,7 @@ ${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${es
 <div class="card"><div class="pad"><h2 style="margin:0">Campfire connection</h2>${status}</div>${details}${actions}</div>
 ${st.fallbacks?.length ? `<div class="card"><div class="pad"><h2 style="margin:0">Still using the API key</h2><p class="sub" style="margin:0">Campfire refused the app these calls, so Rekindle made them with <code>CAMPFIRE_API_KEY</code>. Give the Rekindle app the matching permission in Campfire (Settings → Apps), reconnect, and keep the API key until this list stays empty.</p></div><div class="scroll"><table><thead><tr><th>Call</th><th class="num">Times</th><th>Last</th></tr></thead><tbody>${st.fallbacks.map((f) => `<tr><td><code>${esc(f.path)}</code></td><td class="num">${f.count}</td><td>${esc(atET(f.last))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
 ${ctx.admin && ctx.admins ? adminsCard(ctx.admins, ctx.user) : ''}
+${ctx.admin && ctx.reclassSetup ? reclassAccountsCard(ctx.reclassSetup) : ''}
 ${ctx.admin ? linkedPeople(ctx.links || []) : ''}
 ${tech}`,
   });
@@ -727,13 +729,14 @@ export function panelPage(p) {
         else if (plan?.billingType === 'Expense') billed = '<span class="muted">Not billed back</span>';
         else if (plan?.billTo?.length) billed = plan.billTo.map((b) => `${esc(b.customer.name)}${b.percent < 100 ? ` ${b.percent}%` : ''}`).join('<br>');
         else billed = '<span class="muted">—</span>';
-        const invoices = inv.length
+        const rc = (p.reclasses || []).find((r) => r.line_id === line.id);
+        const invoices = rc ? `Reclassed · JE ${esc(rc.je_number || 'posting…')}` : inv.length
           ? inv.map((i) => `${esc(i.invoice_number || 'creating…')} <span class="muted">${esc(i.customer_name || '')}</span>`).join('<br>')
           : '<span class="muted">Not invoiced</span>';
         return `<tr><td>${esc(line.description || '')}<div class="muted">${esc(dealOf(line, p.config) || 'No deal')}${plan?.billingType ? ` · ${pill(plan.billingType, TYPE_STYLE[plan.billingType] || '')}` : ''}</div></td>
 <td class="num">${usd(Math.round(Number(line.amount) * 100))}</td><td>${esc(cfStatus(line, p.config))}</td><td>${billed}</td><td>${invoices}</td></tr>`;
       }).join('');
-      body = `<div class="scroll"><table><thead><tr><th>Line</th><th class="num">Amount</th><th>Billback status</th><th>Billed to</th><th>Invoice</th></tr></thead><tbody>${rows}</tbody></table></div>
+      body = `<div class="scroll"><table><thead><tr><th>Line</th><th class="num">Amount</th><th>Billback status</th><th>Billed to</th><th>Invoice / reclass</th></tr></thead><tbody>${rows}</tbody></table></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap">${open(`/?bill=${encodeURIComponent(p.bill.bill_number || '')}`, 'Open in Rekindle', true)}${open('/approvals', 'Approvals')}</div>`;
     }
   } else if (!p.run) {
@@ -755,4 +758,108 @@ ${r.error ? `<div class="banner bad">${esc(r.error)}</div>` : ''}
   }
   return `<!doctype html><html lang="en" class="embedded"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rekindle</title><style>${CSS}</style></head>
 <body><div class="panel">${p.demo ? '<div class="banner demo">Demo data</div>' : ''}${linkBanner(p)}${body}</div></body></html>`;
+}
+
+// ---- Reclass: Expense lines moved off the unbilled account
+const RECLASS_STATUS = {
+  creating: ['Posting…', 'background:var(--warn-tint);color:var(--warn)'],
+  created: ['Posted · lines not marked', 'background:var(--warn-tint);color:var(--warn)'],
+  complete: ['Complete', 'background:var(--good-tint);color:var(--good)'],
+  failed: ['Not posted', 'background:var(--bad-tint);color:var(--bad)'],
+  unknown: ['Check Campfire', 'background:var(--bad-tint);color:var(--bad)'],
+};
+
+function reclassHistory(ctx) {
+  const runs = ctx.reclass?.runs || [];
+  if (!runs.length) return '';
+  const rows = runs.map((r) => {
+    const [label, style] = RECLASS_STATUS[r.status] || [r.status, ''];
+    const actions = [];
+    if (ctx.admin && r.status === 'created') actions.push(`<form method="post" action="/reclass/retry"><input type="hidden" name="run" value="${esc(r.id)}"><button class="btn sm" type="submit">Retry</button></form>`);
+    if (ctx.admin && r.status === 'unknown') {
+      actions.push(`<form class="inline" method="post" action="/reclass/resolve"><input type="hidden" name="run" value="${esc(r.id)}">
+<label class="filter" style="min-width:120px"><span>Campfire journal entry ID</span><input name="campfire_id" inputmode="numeric" pattern="[0-9]*" placeholder="if it was posted"></label>
+<button class="btn sm" type="submit" name="outcome" value="found">It was posted</button>
+<button class="btn sm" type="submit" name="outcome" value="not_created">It wasn't posted</button></form>`);
+    }
+    return `<tr><td>${esc(atET(r.created_at))}</td><td>${esc(r.je_date)}<div class="small muted">${esc(r.ref)}</div></td><td>${esc(r.je_number || '—')}</td><td>${esc(r.line_count)}</td><td class="num">${usd(r.total_cents)}</td>
+<td>${pill(label, style)}${r.error ? `<div class="small no" style="white-space:normal;max-width:360px;margin-top:4px">${esc(r.error)}</div>` : ''}</td>
+<td style="white-space:normal"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">${actions.join('')}</div></td></tr>`;
+  }).join('');
+  return `<div class="card"><div class="cardhead"><h2>Reclass history</h2><span class="small muted">Newest first</span></div>
+<div class="scroll"><table><thead><tr><th>When</th><th>JE date</th><th>Journal entry</th><th>Lines</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+export function reclassPage(ctx, flash = null) {
+  const { waiting = [], accounts = new Map() } = ctx.reclass || {};
+  const durable = ctx.storeKind === 'postgres' || process.env.REKINDLE_ALLOW_MEMORY_STORE === 'true';
+  const canPost = ctx.admin && ctx.write && !ctx.demo && durable;
+  const total = waiting.reduce((t, l) => t + l.amountCents, 0);
+  const problemOf = (l) => {
+    if (!l.rechargeCategoryId) return 'No Recharge Category tag on the line';
+    if (!accounts.get(Number(l.rechargeCategoryId))) return `No expense account for ${l.rechargeCategory}`;
+    return null;
+  };
+  const rows = waiting.map((l) => {
+    const problem = problemOf(l);
+    const acct = accounts.get(Number(l.rechargeCategoryId));
+    const box = canPost && !problem
+      ? `<input type="checkbox" class="pick" name="line" value="${esc(l.lineId)}" form="reclass-form" aria-label="Select line ${esc(l.lineId)}">`
+      : '<input type="checkbox" disabled aria-label="Can\'t be reclassed yet">';
+    const to = problem ? `<span class="no">${esc(problem)}</span>${ctx.admin ? ' <a href="/settings#reclass-accounts">Set</a>' : ''}` : esc(acct.account_label || `Account ${acct.account_id}`);
+    return `<tr><td class="check">${box}</td><td>${esc(l.billNumber)}<div class="small muted">${esc(l.vendorName || '')}</div></td><td class="wrap">${esc(l.description || '')}</td><td>${esc(l.dealsTag || '')}</td><td>${esc(l.rechargeCategory || '—')}</td>
+<td class="wrap">${to}</td><td>${pill(l.status, l.status === 'To be expensed' ? 'background:var(--warn-tint);color:var(--warn)' : 'background:var(--hover);color:var(--nav-ink)')}</td><td class="num">${usd(l.amountCents)}</td></tr>`;
+  }).join('');
+  let why = '';
+  if (!ctx.admin) why = 'Only admins can post reclass entries.';
+  else if (ctx.demo) why = 'Demo mode: connect Campfire to post reclasses.';
+  else if (!ctx.write) why = 'Writing to Campfire is off (REKINDLE_WRITE).';
+  else if (!durable) why = 'Connect the database (DATABASE_URL) first.';
+  const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}" style="white-space:pre-line">${esc(flash.text)}</div>` : '';
+  return layout({
+    active: 'reclass', title: 'Reclass', ctx, scripts: ['/static/queue.js'],
+    body: `${flashHtml}<div class="head"><div><h1 class="title">Reclass</h1><p class="sub">Deal expenses that won't be billed back, moved off unbilled receivable.</p></div>
+${canPost ? `<form id="reclass-form" method="post" action="/reclass/confirm" class="inline"><label class="filter" style="min-width:160px"><span>Journal entry date</span><input type="date" name="date" value="${esc(todayLocal())}" required></label><button class="btn primary" type="submit" id="stamp-selected" data-verb="Reclass">Reclass selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Reclass selected</button>`}</div>
+${why && ctx.admin ? `<p class="sub" style="margin:0">${esc(why)}</p>` : ''}
+<div class="card"><div class="selbar"><span>${waiting.length} line${waiting.length === 1 ? '' : 's'} waiting · ${usd(total)}</span>${canPost ? '<span id="sel-count" aria-live="polite"></span>' : ''}</div>
+<div class="scroll"><table><thead><tr><th class="check">${canPost ? '<input type="checkbox" id="select-all" aria-label="Select all lines ready to reclass">' : ''}</th><th>Bill</th><th>Description</th><th>Deal</th><th>Category</th><th>Debit account</th><th>Status</th><th class="num">Amount</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="8" class="muted">No Expense lines waiting.</td></tr>'}</tbody>${waiting.length ? `<tfoot><tr><td></td><td colspan="6">Total</td><td class="num">${usd(total)}</td></tr></tfoot>` : ''}</table></div></div>
+<p class="sub" style="margin:0">Each selected line becomes a debit to its category's expense account and a credit to the unbilled account, with the line's deal, department and tags, in one journal entry. The lines are then marked Expensed.</p>
+${reclassHistory(ctx)}`,
+  });
+}
+const todayLocal = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+export function confirmReclassPage(ctx, { lines, date, preview }) {
+  const total = lines.reduce((t, l) => t + l.amountCents, 0);
+  const problems = preview.problems || [];
+  const byAccount = new Map();
+  for (const r of preview.runs || []) for (const l of r.run.payload.lines) byAccount.set(l.account, (byAccount.get(l.account) || 0) + l.cents);
+  const rows = [...byAccount.entries()].map(([acct, cents]) => `<tr><td>Dr ${esc(acct)}</td><td class="num">${usd(cents)}</td><td></td></tr>`).join('')
+    + `<tr><td>Cr unbilled receivable (each line's account)</td><td></td><td class="num">${usd(total)}</td></tr>`;
+  const hidden = lines.map((l) => `<input type="hidden" name="line" value="${esc(l.lineId)}">`).join('');
+  return layout({
+    active: 'reclass', title: 'Confirm reclass', ctx,
+    body: `<div><span class="small muted">Reclass › Confirm</span><h1 style="margin-top:6px">Reclass ${lines.length} line${lines.length === 1 ? '' : 's'} · ${usd(total)}</h1>
+<p class="sub">This posts a real journal entry in Campfire dated ${esc(date)}${(preview.runs || []).length > 1 ? ` (one per entity: ${preview.runs.length})` : ''} and marks the lines Expensed. A mistake is fixed by reversing the entry in Campfire.</p></div>
+${problems.length ? `<div class="banner bad">${problems.map(esc).join('<br>')}</div>` : ''}
+<div class="card"><div class="scroll"><table><thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead><tbody>${rows}</tbody></table></div>
+<form method="post" action="/reclass/create" class="pad" style="flex-direction:row;gap:8px">${hidden}<input type="hidden" name="date" value="${esc(date)}">
+${problems.length ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Post reclass in Campfire</button>`}<a class="btn" href="/reclass">Cancel</a></form></div>`,
+  });
+}
+
+function reclassAccountsCard(setup) {
+  const { categories = [], accounts, accountsError, saved = new Map() } = setup;
+  const rows = categories.map((c) => {
+    const cur = saved.get(Number(c.id));
+    const choice = accounts
+      ? `<select name="account" required style="min-height:36px;max-width:320px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)"><option value="">Choose an expense account</option>${accounts.map((a) => `<option value="${esc(`${a.id}|${a.label}`)}"${cur && Number(cur.account_id) === Number(a.id) ? ' selected' : ''}>${esc(a.label)}</option>`).join('')}</select>`
+      : `<input name="account" required inputmode="numeric" placeholder="Campfire account ID" value="${esc(cur ? `${cur.account_id}${cur.account_label ? `|${cur.account_label}` : ''}` : '')}" style="min-height:36px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)">`;
+    return `<tr><td><b>${esc(c.name)}</b></td><td>${cur ? esc(cur.account_label || `Account ${cur.account_id}`) : '<span class="no">Not set</span>'}</td>
+<td><form method="post" action="/settings/reclass-account" class="inline"><input type="hidden" name="category" value="${esc(c.id)}"><input type="hidden" name="category_name" value="${esc(c.name)}">${choice}<button class="btn sm" type="submit">Save</button></form></td></tr>`;
+  }).join('');
+  return `<div class="card" id="reclass-accounts"><div class="pad"><h2 style="margin:0">Reclass accounts</h2><p class="sub" style="margin:0">Where each Recharge Category's expenses go when a deal cost isn't billed back. The reclass entry debits this account and credits unbilled receivable.</p>
+${accountsError ? `<div class="banner bad">Couldn't list expense accounts from Campfire (${esc(accountsError)}). Enter the account's Campfire ID instead.</div>` : ''}</div>
+${rows ? `<div class="scroll"><table><thead><tr><th>Recharge category</th><th>Expense account</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="pad"><span class="small muted">No Recharge Category tags found.</span></div>'}</div>`;
 }

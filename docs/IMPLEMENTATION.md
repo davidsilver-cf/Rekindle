@@ -34,9 +34,9 @@ A deal sent back goes to AP to fix the bill, then returns for approval; Expense 
 | Deal | The deal's own billback customer, 100% | A portfolio company reimbursing its deal costs |
 | Fund | One fund, 100% | Deals in diligence charged to the fund |
 | Allocation | Several owners by %, effective-dated | Co-invest vehicles sharing a deal |
-| Expense | No one | Firm cost, reclassed instead |
+| Expense | No one | Firm cost: marked To be expensed, then moved off 13190 by a reclass journal entry |
 
-**What posts where.** Each invoice uses the Reimbursable Item product, whose income account is 13190. The invoice posts Dr Accounts Receivable / Cr 13190 Unbilled Receivable, clearing the unbilled balance the bills built up.
+**What posts where.** Each invoice uses the Reimbursable Item product, whose income account is 13190. The invoice posts Dr Accounts Receivable / Cr 13190 Unbilled Receivable, clearing the unbilled balance the bills built up. Expense lines are cleared by a **reclass** journal entry instead: Dr the Recharge Category's expense account / Cr 13190, one pair per line with its deal, department and tags, posted from the Reclass screen in a reviewed batch on a date you choose; the lines then show Expensed.
 
 **What Rekindle never does.** It never changes amounts, accounts or a Billing Type someone set, never bills a share twice (each line share is reserved in its database before an invoice is created), and writes nothing to Campfire until writing is switched on.
 
@@ -76,7 +76,8 @@ Set up the account, tags, field and product Rekindle reads, then note each one's
    | Class (optional) | the customer's classes | Copied onto invoice lines |
 3. **Custom field.** Add a bill-line custom field **Default Billing Type** (`custom_field_defaultbillingtype`) with options Deal, Fund, Allocation, Expense. AP can set it by hand; Rekindle fills it when blank.
 4. **Product.** Create **Reimbursable Item** (Products and Services). Set **Invoice Credit Account** = 13190 Unbilled Receivable, and untick **Recognize Revenue** and **MRR item**. Note its number (for example 699767), not its long ID.
-5. **AP process.** Make sure AP codes reimbursable lines to 13190 with a Deals tag, a Recharge Category, and Billback Status = Pending.
+5. **Expense accounts.** Decide which expense account each Recharge Category's unbilled costs move to when a deal cost isn't billed back (for example Legal → 6100 Legal expense). You'll set these in Rekindle on Settings → Reclass accounts.
+6. **AP process.** Make sure AP codes reimbursable lines to 13190 with a Deals tag, a Recharge Category, and Billback Status = Pending.
 
 Update `config/rekindle.json` in the repo with the customer's tag group IDs, Billback Status tag IDs, account number and invoice branding. To find the IDs, ask Claude to read them through the Campfire connector.
 
@@ -129,6 +130,7 @@ Give the app only what Rekindle uses; everything else stays No access.
 | --- | --- | --- |
 | Accounting | Bills | Write |
 | Accounting | Invoices | Write (not Draft) |
+| Accounting | Journal Entries | Write (reclass entries) |
 | Organization | Tags, Custom Fields, Departments, Entities, Products and Services, Chart of Accounts, Vendors and Payees | Read |
 | Identity | openid, email, profile | On |
 
@@ -151,6 +153,7 @@ Add these on the app. Space the **Order** values by 10 so they appear in workflo
 | Navigation | Deals & Allocations | Under Rekindle | `https://<host>/deals` | 20 |
 | Navigation | Approvals | Under Rekindle | `https://<host>/approvals` | 30 |
 | Navigation | Invoices | Under Rekindle | `https://<host>/invoices` | 40 |
+| Navigation | Reclass | Under Rekindle | `https://<host>/reclass` | 45 |
 | Navigation | Settings | Under Rekindle | `https://<host>/settings` | 50 |
 | Panel | Rekindle billback | Bills, Detail page | `https://<host>/campfire/panel/bill/{{record.id}}` | — |
 | Panel | Rekindle | Invoices, Detail page | `https://<host>/campfire/panel/invoice/{{record.id}}` | — |
@@ -178,6 +181,7 @@ Run one real bill end to end with writing switched on before handing over; it ca
 - [ ] Invoice lines carry department, Deals, Recharge Category, Class, Billback Customer and Billback Status = Billed
 - [ ] Source bill lines show Billed (a split line shows Allocated Pending Invoice until every owner is invoiced)
 - [ ] The invoice's journal entry is Dr Accounts Receivable / Cr 13190
+- [ ] Set every Recharge Category's account on Settings → Reclass accounts; reclass a test Expense line and check the JE (Dr expense / Cr 13190, with tags) and that the line shows Expensed
 - [ ] The bill and invoice panels show inside Campfire, and the navigation opens Rekindle already signed in
 
 **Go live.**
@@ -198,7 +202,8 @@ The finance team's routine is: clear exceptions on the Billback Queue, get each 
 | Deals & Allocations | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; change owners and %; set approvers (admins) |
 | Approvals | The run grouped by deal, with each deal's total and status | Approvers **Approve** or **Send back** with a note; click a line count to see the lines |
 | Invoices | What each billback customer owes, and whether it's Ready | Download a draft PDF; tick customers and **Create selected**; Invoice history, Retry, Re-apply tags |
-| Settings | The Campfire connection, admins, people linked from Campfire | Connect or disconnect; add or remove admins; unlink people (admins) |
+| Reclass | Expense lines waiting to move off 13190, and Reclass history | Tick lines, pick the JE date, **Reclass selected**, confirm; Retry or resolve a run that didn't finish |
+| Settings | The Campfire connection, admins, reclass accounts, people linked from Campfire | Connect or disconnect; add or remove admins; unlink people (admins) |
 
 Inside Campfire's own records:
 
@@ -210,7 +215,8 @@ Inside Campfire's own records:
 1. Billback Queue: check Exceptions is 0. A deal tag that **needs setup** links straight to its setup.
 2. Click **Review for approval**; each approver approves their deals.
 3. Invoices: create invoices for every Ready customer and check the totals against the queue.
-4. Check Invoice history is all **Complete**.
+4. Reclass: post the month's Expense lines (date it month-end if you close that way).
+5. Check Invoice history and Reclass history are all **Complete**.
 
 **Fixing exceptions**
 
@@ -247,6 +253,8 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | Invoice history: **Created · PDF not attached** | A later step failed | **Retry**; it never creates a second invoice |
 | Invoice lines missing tags | Invoice made before tags were sent, or Campfire dropped them | **Re-apply tags** on the run or the invoice panel |
 | New bills don't stamp on their own | Webhook missing, or writing off | Step 3f; `REKINDLE_WRITE=true`; or Stamp from the queue |
+| Reclass: "No expense account for <category>" | That Recharge Category has no account | Settings → Reclass accounts |
+| Reclass: Campfire 403 on `/coa/api/journal_entry` | The app lacks Journal Entries: Write | Step 3b, then Reconnect (the API key covers it meanwhile) |
 | First page takes a minute | Free Render plan was asleep | Normal on free; use a paid instance |
 
 ## Reference

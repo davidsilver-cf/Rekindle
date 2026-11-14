@@ -14,21 +14,22 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags } from './campfire.js';
+import { waitingLines, prepareReclass, startReclass, advanceReclass, todayISO } from './reclass.js';
 import { processBills } from './process.js';
 import { planBills, planLine } from './engine.js';
 import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage } from './ui.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage, reclassPage, confirmReclassPage } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail, LINK_COOKIE, makeLinkToken, readLinkToken, isUnlinkedCampfireUser, setSettingsAdmins, envAdmins } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
 import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
 import { getStore, StoreError, ShareTakenError } from './store.js';
 
-const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice };
+const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice, createJournalEntry };
 import { dealGroups, withStatus, canDecide, customerReady } from './approvals.js';
 import { startInvoice, advanceRun, prepareInvoice, retagRun } from './invoicing.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
@@ -185,12 +186,13 @@ async function screenContext(user) {
   const store = await getStore();
   const [config, bills, invoiced] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares()]);
   const plan = planBills(bills, config, { invoiced });
-  const [approvers, decisions, runs] = await Promise.all([store.getApprovers(), store.latestDecisions(), store.listRuns(30)]);
+  const [approvers, decisions, runs, reclassed, reclassAccounts, reclassRuns] = await Promise.all([store.getApprovers(), store.latestDecisions(), store.listRuns(30), store.reclassedLines(), store.getReclassAccounts(), store.listReclass(30)]);
   const groups = withStatus(dealGroups(plan, config), approvers, decisions).map((g) => ({ ...g, canDecide: canDecide(user, g) }));
   const readiness = new Map(plan.customers.map((c) => [c.customer.name, customerReady(c, plan, groups)]));
   return {
     config,
     plan,
+    reclass: { waiting: waitingLines(plan, reclassed), accounts: reclassAccounts, runs: reclassRuns },
     groups,
     approvers,
     readiness,
@@ -211,6 +213,25 @@ const n = (s, k) => Number(s.get(k)) || 0;
 // Where a form may send you back to: only a Rekindle panel path.
 const backTo = (form, fallback) => (/^\/campfire\/panel\/(bill|invoice)\/\d+$/.test(form.get('back') || '') ? form.get('back') : fallback);
 const SCREENS = {
+  '/reclass': (ctx, url) => {
+    const s = url.searchParams;
+    let flash = null;
+    if (s.has('done')) {
+      flash = { ok: n(s, 'failed') === 0 && n(s, 'held') === 0 && n(s, 'partial') === 0, text: [
+        n(s, 'done') ? `Posted ${n(s, 'done')} reclass journal entr${n(s, 'done') === 1 ? 'y' : 'ies'} in Campfire and marked the lines Expensed.` : '',
+        n(s, 'partial') ? `${n(s, 'partial')} posted but the lines weren't all marked; see Reclass history and press Retry.` : '',
+        n(s, 'held') ? `${n(s, 'held')} need${n(s, 'held') === 1 ? 's' : ''} checking in Campfire; see Reclass history.` : '',
+        n(s, 'failed') ? `${n(s, 'failed')} not posted; see Reclass history for why.` : '',
+      ].filter(Boolean).join('\n') };
+    } else if (s.has('nothing')) {
+      flash = { ok: false, text: 'Select at least one line that is ready to reclass.' };
+    } else if (s.has('problems')) {
+      flash = { ok: false, text: s.get('problems') };
+    } else if (s.has('retried')) {
+      flash = { ok: s.get('retried') === 'complete', text: s.get('retried') === 'complete' ? 'Finished.' : 'Still not finished; see the message in Reclass history.' };
+    }
+    return reclassPage(ctx, flash);
+  },
   '/': (ctx, url) => {
     const s = url.searchParams;
     let flash = null;
@@ -543,13 +564,30 @@ async function handle(req, res) {
     const s = url.searchParams;
     const flash = s.has('connected') ? { ok: true, text: 'Connected to Campfire. Rekindle now reads and writes with this connection.' }
       : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' }
+      : s.get('reclass') === 'saved' ? { ok: true, text: 'Reclass account saved.' }
+      : s.get('reclass') === 'bad' ? { ok: false, text: 'Pick an account (or enter its ID).' }
       : s.get('admin') === 'added' ? { ok: true, text: 'Admin added. They have admin rights the next time they load a page.' }
       : s.get('admin') === 'removed' ? { ok: true, text: 'Admin removed.' }
       : s.get('admin') === 'self' ? { ok: false, text: "You can't remove yourself. Ask another admin." }
       : s.get('admin') === 'bad' ? { ok: false, text: "That isn't an email address." } : null;
     const links = isAdmin(user) ? await (await getStore()).listUserLinks().catch(() => []) : [];
     const admins = isAdmin(user) ? { settings: await (await getStore()).listAdmins().catch(() => []), env: envAdmins() } : null;
-    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user, req), links, admins, settings: {
+    let reclassSetup = null;
+    if (isAdmin(user)) {
+      const config = ctx.config?.tagGroups ? ctx.config : await loadConfig().catch(() => null);
+      let categories = [];
+      let accounts = null;
+      let accountsError = null;
+      if (!demoMode() && config) {
+        categories = await listTags(config.tagGroups.rechargeCategory).then((t) => t.map((x) => ({ id: x.id, name: x.name }))).catch(() => []);
+        accounts = await listExpenseAccounts().catch((err) => { accountsError = err.message; return null; });
+      } else if (ctx.plan) {
+        const seen = new Map(ctx.plan.lines.filter((l) => l.rechargeCategoryId).map((l) => [l.rechargeCategoryId, l.rechargeCategory]));
+        categories = [...seen].map(([id, name]) => ({ id, name }));
+      }
+      reclassSetup = { categories, accounts, accountsError, saved: await (await getStore()).getReclassAccounts().catch(() => new Map()) };
+    }
+    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user, req), links, admins, reclassSetup, settings: {
       appConfigured: oauthConfigured(),
       apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
       scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',
@@ -582,7 +620,8 @@ async function handle(req, res) {
         if (!bill) return html(res, panelPage({ ...base, kind: 'bill', missing: true }));
         const lines = (bill.lines || []).filter((l) => l.account_number === config.unbilledAccountNumber);
         const invoices = lines.length ? await store.invoicesForLines(lines.map((l) => l.id)) : [];
-        return html(res, panelPage({ ...base, kind: 'bill', bill, config, lines: lines.map((l) => ({ line: l, plan: planLine(bill, l, config) })), invoices }));
+        const reclasses = lines.length ? await store.reclassForLines(lines.map((l) => l.id)) : [];
+        return html(res, panelPage({ ...base, kind: 'bill', bill, config, lines: lines.map((l) => ({ line: l, plan: planLine(bill, l, config) })), invoices, reclasses }));
       }
       const run = await store.runByInvoice(id);
       const items = run ? await store.runItems(run.id) : [];
@@ -703,6 +742,84 @@ async function handle(req, res) {
     await store.audit(user.email, 'invoice_resolve', { ref: run.ref, outcome: 'found', campfireInvoiceId: id });
     const after = await advanceRun(run.id, { store, api: campfireApi, config, log: console.log });
     return redirect(res, `/invoices?retried=${after.status}`);
+  }
+
+  // ---- Reclass: Expense lines moved off the unbilled account by journal entry.
+  const reclassRoute = ['/reclass/confirm', '/reclass/create', '/reclass/retry', '/reclass/resolve'].includes(url.pathname);
+  if (req.method === 'POST' && reclassRoute) {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can post reclass entries.');
+    if (demoMode() || !writeEnabled()) return redirect(res, '/reclass');
+    const form = new URLSearchParams(await readBody(req));
+    const store = await getStore();
+    if (store.kind !== 'postgres' && process.env.REKINDLE_ALLOW_MEMORY_STORE !== 'true') {
+      return send(res, 409, 'Connect the database (DATABASE_URL) before posting reclasses, so Rekindle keeps a permanent record of what it has posted.');
+    }
+    if (url.pathname === '/reclass/confirm' || url.pathname === '/reclass/create') {
+      const ctx = { ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/reclass' };
+      const ids = new Set(form.getAll('line').map(Number));
+      const lines = ctx.reclass.waiting.filter((l) => ids.has(l.lineId));
+      if (!lines.length) return redirect(res, '/reclass?nothing=1');
+      const date = form.get('date') || todayISO();
+      if (url.pathname === '/reclass/confirm' || form.get('confirm') !== 'yes') {
+        const preview = prepareReclass({ lines, accounts: ctx.reclass.accounts, config: ctx.config, date, ref: 'preview' });
+        return html(res, confirmReclassPage(ctx, { lines, date, preview }));
+      }
+      const tally = { done: 0, partial: 0, held: 0, failed: 0 };
+      try {
+        const out = await startReclass({ lines, accounts: ctx.reclass.accounts, config: ctx.config, store, api: campfireApi, user, date, log: console.log });
+        if (!out.ok) return redirect(res, `/reclass?problems=${encodeURIComponent(out.problems.join(' '))}`);
+        for (const r of out.runs) {
+          if (r.status === 'complete') tally.done++;
+          else if (r.status === 'unknown') tally.held++;
+          else if (r.status === 'failed') tally.failed++;
+          else tally.partial++;
+        }
+      } catch (err) {
+        tally.failed++;
+        console.log(JSON.stringify({ event: 'reclass_error', error: err.message, taken: err instanceof ShareTakenError }));
+      }
+      return redirect(res, `/reclass?done=${tally.done}&partial=${tally.partial}&held=${tally.held}&failed=${tally.failed}`);
+    }
+    const run = await store.getReclass(Number(form.get('run')));
+    if (!run) return send(res, 404, 'No such reclass run.');
+    const config = await loadConfig();
+    if (url.pathname === '/reclass/retry') {
+      if (run.status !== 'created') return redirect(res, '/reclass');
+      const after = await advanceReclass(run.id, { store, api: campfireApi, config, log: console.log });
+      await store.audit(user.email, 'reclass_retry', { ref: run.ref, status: after.status });
+      return redirect(res, `/reclass?retried=${after.status}`);
+    }
+    if (run.status !== 'unknown') return redirect(res, '/reclass');
+    if (form.get('outcome') === 'not_created') {
+      await store.releaseReclass(run.id, `Checked in Campfire by ${user.email}: not created. Lines released.`);
+      await store.audit(user.email, 'reclass_resolve', { ref: run.ref, outcome: 'not_created' });
+      return redirect(res, '/reclass');
+    }
+    const id = Number(form.get('campfire_id'));
+    if (!Number.isInteger(id) || id <= 0) return send(res, 400, 'Enter the Campfire journal entry ID you found.');
+    await store.updateReclass(run.id, { status: 'created', campfire_je_id: id, je_number: String(id), error: null });
+    await store.audit(user.email, 'reclass_resolve', { ref: run.ref, outcome: 'found', campfireJeId: id });
+    const after = await advanceReclass(run.id, { store, api: campfireApi, config, log: console.log });
+    return redirect(res, `/reclass?retried=${after.status}`);
+  }
+
+  // Settings → Reclass accounts: the expense account for each Recharge Category.
+  if (req.method === 'POST' && url.pathname === '/settings/reclass-account') {
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can set reclass accounts.');
+    const form = new URLSearchParams(await readBody(req));
+    const categoryTagId = Number(form.get('category'));
+    const store = await getStore();
+    if (!Number.isInteger(categoryTagId) || categoryTagId <= 0) return redirect(res, '/settings?reclass=bad');
+    if (form.get('clear') === '1') {
+      await store.deleteReclassAccount(categoryTagId);
+    } else {
+      const [accountId, ...label] = String(form.get('account') || '').split('|');
+      if (!(Number(accountId) > 0)) return redirect(res, '/settings?reclass=bad');
+      await store.saveReclassAccount({ categoryTagId, categoryName: form.get('category_name') || String(categoryTagId), accountId: Number(accountId), accountLabel: label.join('|') || null, by: user.email });
+    }
+    await store.audit(user.email, 'reclass_account', { categoryTagId, account: form.get('account') || null });
+    return redirect(res, '/settings?reclass=saved#reclass-accounts');
   }
 
   const pdfMatch = req.method === 'GET' && url.pathname.match(/^\/invoices\/run\/(\d+)\/pdf$/);

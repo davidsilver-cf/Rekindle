@@ -130,3 +130,38 @@ CREATE TABLE IF NOT EXISTS rekindle_admins (
   added_by  text NOT NULL,
   added_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Reclass: the expense account each Recharge Category's unbilled expenses move to.
+CREATE TABLE IF NOT EXISTS reclass_accounts (
+  category_tag_id bigint PRIMARY KEY,
+  category_name   text NOT NULL,
+  account_id      bigint NOT NULL,
+  account_label   text,
+  updated_by      text NOT NULL,
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- Reclass runs: one Campfire journal entry moving Expense lines off 13190.
+CREATE TABLE IF NOT EXISTS reclass_runs (
+  id                bigserial PRIMARY KEY,
+  ref               text NOT NULL UNIQUE,
+  entity_id         bigint,
+  je_date           date NOT NULL,
+  total_cents       bigint NOT NULL,
+  status            text NOT NULL CHECK (status IN ('creating', 'created', 'complete', 'failed', 'unknown')),
+  campfire_je_id    bigint,
+  je_number         text,
+  error             text,
+  payload           jsonb,
+  created_by        text NOT NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+-- Each bill line can be reclassed once.
+CREATE TABLE IF NOT EXISTS reclass_items (
+  id       bigserial PRIMARY KEY,
+  run_id   bigint NOT NULL REFERENCES reclass_runs (id) ON DELETE CASCADE,
+  line_id  bigint NOT NULL UNIQUE,
+  bill_id  bigint NOT NULL,
+  cents    bigint NOT NULL
+);

@@ -39,7 +39,7 @@ Sign in at the service's address with `REKINDLE_ADMIN_TOKEN`. Without `CAMPFIRE_
 - **Billing Type:** the line's value always wins. Rekindle only fills a blank, from the deal's row in `config/rekindle.json`.
 - **Deal / Fund:** billed 100% to the deal's billback customer; Rekindle adds the Billback Customer tag if it's missing.
 - **Allocation:** split across the owners whose start/end dates cover the bill date. Amounts are worked in cents; leftover cents go to the largest share, so the split always adds back to the line.
-- **Expense:** not billed back; flagged for reclass.
+- **Expense:** not billed back. Marked **To be expensed**, then the **Reclass** screen posts one journal entry per batch (Dr the Recharge Category's expense account, set on Settings → Reclass accounts / Cr the unbilled account, each line keeping its deal, department and tags) and marks the lines **Expensed**. Needs the app's Accounting → Journal Entries: Write.
 - **Exceptions** (no Deals tag, tag not set up, owners not 100%) are reported and left alone.
 - Every pending cent must land in billed, expense or exceptions, or the run fails.
 

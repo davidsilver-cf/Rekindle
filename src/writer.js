@@ -47,6 +47,9 @@ export function buildBillUpdate(bill, linePlans) {
     for (const s of stampsByLine.get(line.id) || []) {
       if (s.field === 'billbackCustomerTag') {
         if (!out.tags.some((t) => t.id === s.tagId)) out.tags.push({ id: s.tagId });
+      } else if (s.field === 'billbackStatusTag') {
+        const replace = new Set(s.replace || []);
+        out.tags = out.tags.filter((t) => !replace.has(t.id)).concat({ id: s.tagId });
       } else {
         out[s.field] = s.value;
       }

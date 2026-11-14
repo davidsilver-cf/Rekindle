@@ -39,9 +39,10 @@ export function splitCents(totalCents, owners) {
   return shares;
 }
 
-// Billback statuses Rekindle works on: Pending (nothing invoiced yet) and
-// Allocated Pending Invoice (a split line with some shares invoiced).
-export const OPEN_STATUSES = ['Pending', 'Allocated Pending Invoice'];
+// Billback statuses Rekindle works on: Pending (nothing invoiced yet),
+// Allocated Pending Invoice (a split line with some shares invoiced) and
+// To be expensed (an Expense line waiting for its reclass entry).
+export const OPEN_STATUSES = ['Pending', 'Allocated Pending Invoice', 'To be expensed'];
 
 // Plan one bill line. Returns null for lines Rekindle should not touch
 // (wrong account, or not in an open billback status).
@@ -67,6 +68,9 @@ export function planLine(bill, line, config) {
     description: line.description,
     amountCents: toCents(line.amount),
     rechargeCategory: tagInGroup(line, config.tagGroups.rechargeCategory)?.name ?? null,
+    rechargeCategoryId: tagInGroup(line, config.tagGroups.rechargeCategory)?.id ?? null,
+    accountId: line.account ?? null,
+    vendorId: bill.vendor ?? null,
     stamps: [],
     warnings: [],
     exception: null,
@@ -95,7 +99,12 @@ export function planLine(bill, line, config) {
   }
 
   if (billingType === 'Expense') {
-    // Not billed back; flagged for reclass.
+    // Not billed back: marked To be expensed, then moved off the unbilled
+    // account by a reclass journal entry (Reclass screen).
+    const toExpense = config.billbackStatusTags?.['To be expensed'];
+    if (status.name === 'Pending' && toExpense) {
+      base.stamps.push({ field: 'billbackStatusTag', value: 'To be expensed', tagId: toExpense, replace: Object.values(config.billbackStatusTags) });
+    }
     return base;
   }
 

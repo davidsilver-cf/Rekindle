@@ -243,3 +243,24 @@ export async function updateInvoice(invoice, lines) {
     return request(path, {}, { method: 'PUT', body: { ...header, lines } });
   }
 }
+
+// Create a journal entry (used for reclasses). Returns it with id and order.
+export function createJournalEntry(body) {
+  return request('/coa/api/journal_entry', {}, { method: 'POST', body });
+}
+export function getJournalEntry(id) {
+  return request(`/coa/api/journal_entry/${id}`);
+}
+
+// Expense-type chart accounts, for choosing where each category's expenses go.
+export async function listExpenseAccounts() {
+  const limit = 500;
+  const all = [];
+  for (let offset = 0; offset < 10_000; offset += limit) {
+    const page = await request('/coa/api/account/balance-sheet', { account_type: ['OPERATING_EXPENSES', 'COGS', 'OTHER_EXPENSE'], include_inactive: false, limit, offset });
+    const rows = Array.isArray(page) ? page : page.results || [];
+    all.push(...rows.filter((a) => !a.is_deleted && a.status !== 'INACTIVE'));
+    if (rows.length < limit) break;
+  }
+  return all.map((a) => ({ id: a.id, label: a.name_and_number || [a.number, a.name].filter(Boolean).join(' - ') }));
+}
