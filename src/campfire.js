@@ -269,3 +269,21 @@ export async function listExpenseAccounts() {
     tagIds: (a.default_tags || []).map((t) => (typeof t === 'object' ? t.id : t)),
   }));
 }
+
+// Create a tag (a Deals tag, or a Billback Customer tag). customer is sent in
+// case Campfire accepts it; its docs list it as read-only on tags, so Rekindle
+// also keeps its own link (see store.saveCustomerLink).
+export function createTag({ name, group, customer }) {
+  return request('/coa/api/tag', {}, { method: 'POST', body: { name, group, ...(customer ? { customer } : {}) } });
+}
+
+// Customers live under /coa/api/vendor with vendor_type "customer".
+export function createCustomer({ name, email }) {
+  return request('/coa/api/vendor', {}, { method: 'POST', body: { vendor_type: 'customer', name, company_name: name, ...(email ? { email } : {}) } });
+}
+export async function findCustomerByName(name) {
+  const page = await request('/coa/api/vendor', { q: name, vendor_type: 'customer', limit: 50 });
+  const rows = Array.isArray(page) ? page : page.results || [];
+  const n = name.trim().toLowerCase();
+  return rows.find((v) => (v.vendor_type || 'customer') === 'customer' && !v.is_deleted && [v.name, v.company_name, v.display_name].some((x) => String(x || '').trim().toLowerCase() === n)) || null;
+}

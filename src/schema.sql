@@ -165,3 +165,12 @@ CREATE TABLE IF NOT EXISTS reclass_items (
   bill_id  bigint NOT NULL,
   cents    bigint NOT NULL
 );
+
+-- Billback Customer tag -> Campfire customer, for tags Rekindle created
+-- (Campfire's API doesn't let an app set a tag's customer).
+CREATE TABLE IF NOT EXISTS billback_customer_links (
+  tag_id       bigint PRIMARY KEY,
+  customer_id  bigint NOT NULL,
+  created_by   text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);

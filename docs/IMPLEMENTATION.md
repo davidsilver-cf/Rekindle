@@ -131,7 +131,7 @@ Give the app only what Rekindle uses; everything else stays No access.
 | Accounting | Bills | Write |
 | Accounting | Invoices | Write (not Draft) |
 | Accounting | Journal Entries | Write (reclass entries) |
-| Organization | Tags, Custom Fields, Departments, Entities, Products and Services, Chart of Accounts, Vendors and Payees | Read |
+| Organization | Tags (Write, to create deals and billback customers), Custom Fields, Departments, Entities, Products and Services, Chart of Accounts, Vendors and Payees | Read |
 | Identity | openid, email, profile | On |
 
 ### 3c. Signing secret
@@ -169,6 +169,8 @@ In Campfire, **Settings → Developer → Webhooks → New Webhook**: URL `https
 ## Step 4 — Set up deals, test, go live
 
 Run one real bill end to end with writing switched on before handing over; it catches tag, permission and posting problems while you're still on the project.
+
+**New deals.** On **Deals & Allocations**, admins press **New deal**: name, billing type, who it bills (an existing Billback Customer or **New company**, which creates the Campfire customer and its linked Billback Customer tag), and the approver. Rekindle creates the Deals tag in Campfire and sets the deal up in one step; an Allocation deal then needs its owners. Deals tags created directly in Campfire still work: they show **Needs setup**.
 
 **Set up each deal.** Open **Deals & Allocations**. Every Deals tag in Campfire is listed; new ones show **Needs setup** and their lines are held as exceptions until set up. For each deal choose the billing type, then the billback customer (Deal or Fund), or the owners with % and start dates (Allocation; owners in force must total 100% on every date). Set the deal's **approver**.
 
@@ -253,6 +255,7 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | Invoice history: **Created · PDF not attached** | A later step failed | **Retry**; it never creates a second invoice |
 | Invoice lines missing tags | Invoice made before tags were sent, or Campfire dropped them | **Re-apply tags** on the run or the invoice panel |
 | New bills don't stamp on their own | Webhook missing, or writing off | Step 3f; `REKINDLE_WRITE=true`; or Stamp from the queue |
+| New deal: "Campfire refused part of this" | The app can't create tags or customers yet | Keep `CAMPFIRE_API_KEY` (Rekindle uses it for refused calls); try again: anything already created is reused |
 | Reclass: "No expense account for <category>" | That Recharge Category has no account | Settings → Reclass accounts |
 | Reclass: Campfire 403 on `/coa/api/journal_entry` | The app lacks Journal Entries: Write | Step 3b, then Reconnect (the API key covers it meanwhile) |
 | First page takes a minute | Free Render plan was asleep | Normal on free; use a paid instance |

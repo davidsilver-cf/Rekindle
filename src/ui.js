@@ -342,7 +342,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
   const { config, plan } = ctx;
   const deals = config.deals;
   if (!deals.length) {
-    return layout({ active: 'deals', title: 'Deals & Allocations', ctx, body: '<h1 class="title">Deals &amp; Allocations</h1><p class="sub">No Deals tags found in Campfire yet.</p>' });
+    return layout({ active: 'deals', title: 'Deals & Allocations', ctx, body: `<h1 class="title">Deals &amp; Allocations</h1><p class="sub">No Deals tags found in Campfire yet.</p>${ctx.admin ? '<div><a class="btn primary" href="/deals/new">New deal</a></div>' : ''}` });
   }
   const pendingBy = new Map();
   for (const l of plan.lines) if (l.dealsTag) pendingBy.set(l.dealsTag, (pendingBy.get(l.dealsTag) || 0) + 1);
@@ -385,7 +385,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
   return layout({
     active: 'deals', title: 'Deals & Allocations', ctx, scripts: ['/static/deals.js'],
     body: `${flashHtml}<div class="head"><div><h1 class="title">Deals &amp; Allocations</h1><p class="sub">Every Deals tag in ${ctx.demo ? 'the demo data' : 'Campfire'}. Its billing type decides who gets invoiced.</p></div>
-${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setup`, 'background:var(--bad-tint);color:var(--bad);font-size:13px;padding:6px 12px') : pill('All deals set up', 'background:var(--good-tint);color:var(--good);font-size:13px;padding:6px 12px')}</div>
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${ctx.admin ? '<a class="btn primary" href="/deals/new">New deal</a>' : ''}${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setup`, 'background:var(--bad-tint);color:var(--bad);font-size:13px;padding:6px 12px') : pill('All deals set up', 'background:var(--good-tint);color:var(--good);font-size:13px;padding:6px 12px')}</div></div>
 <div class="split"><div class="card side" style="overflow:hidden"><div class="cardhead"><span class="small muted"><b>${deals.length} deals</b></span></div>${list}</div>
 <div class="wide" style="display:flex;flex-direction:column;gap:16px">
 <div class="card pad" style="flex-direction:row;flex-wrap:wrap;gap:32px">
@@ -865,4 +865,31 @@ function reclassAccountsCard(setup) {
 ${accountsError ? `<div class="banner bad">Couldn't list expense accounts from Campfire (${esc(accountsError)}). Enter the account's Campfire ID instead.</div>` : ''}
 ${unsetWithGuess ? `<form method="post" action="/settings/reclass-accounts/fill" class="inline"><button class="btn primary" type="submit">Fill by name (${unsetWithGuess})</button><span class="small muted">Sets each unset category to the expense account tagged with it or named the same. Review after.</span></form>` : ''}</div>
 ${rows ? `<div class="scroll"><table><thead><tr><th>Recharge category</th><th>Expense account</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="pad"><span class="small muted">No Recharge Category tags found.</span></div>'}</div>`;
+}
+
+// ---- New deal
+export function newDealPage(ctx, { canCreate, form = {}, errors = [] }) {
+  const customers = ctx.config.billbackCustomers || [];
+  const type = form.billingType || '';
+  const typeOptions = ['Deal', 'Fund', 'Allocation', 'Expense'].map((t) => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`).join('');
+  const cust = form.customer || '';
+  const custOptions = `<option value="">Choose…</option><option value="new"${cust === 'new' ? ' selected' : ''}>New company…</option>${customers.map((c) => `<option value="${esc(c.billbackTagId)}"${String(c.billbackTagId) === cust ? ' selected' : ''}>${esc(c.name)}${c.customerId ? '' : ' (not linked to a customer)'}</option>`).join('')}`;
+  const field = 'min-height:40px;padding:0 10px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)';
+  return layout({
+    active: 'deals', title: 'New deal', ctx, scripts: ['/static/newdeal.js'],
+    body: `<div><span class="small muted"><a href="/deals">Deals &amp; Allocations</a> › New deal</span><h1 class="title" style="margin-top:6px">New deal</h1><p class="sub">Creates the deal in Campfire and sets it up here, in one step.</p></div>
+${errors.length ? `<div class="banner bad">${errors.map(esc).join('<br>')}</div>` : ''}
+${canCreate ? '' : '<div class="banner demo">Creating deals needs a live Campfire connection with writing on (REKINDLE_WRITE).</div>'}
+<form class="card pad newdeal" method="post" action="/deals/create" style="gap:16px;max-width:720px">
+<label class="filter" style="flex:none;width:100%"><span>Deal name</span><input name="name" required maxlength="250" value="${esc(form.name || '')}" placeholder="e.g. Project Atlas" style="${field}"></label>
+<label class="filter" style="flex:none;width:100%"><span>Billing type</span><select name="billingType" required style="${field}">${type ? '' : '<option value="" selected>Choose…</option>'}${typeOptions}</select></label>
+<p class="sub" style="margin:0"><b>Deal</b>: the company itself reimburses. <b>Fund</b>: a fund pays (e.g. a deal in diligence). <b>Allocation</b>: split across owners, which you add next. <b>Expense</b>: not billed back.</p>
+<div id="nd-billed-to" style="display:flex;flex-direction:column;gap:12px">
+<label class="filter" style="flex:none;width:100%"><span>Billed to</span><select name="customer" style="${field}">${custOptions}</select></label>
+<div id="nd-new-company" class="card pad" style="gap:12px;background:var(--soft);flex:none"><b>New company</b><span class="small muted">Rekindle creates the customer in Campfire and its Billback Customer tag, linked together.</span>
+<label class="filter" style="flex:none;width:100%"><span>Company name</span><input name="companyName" value="${esc(form.companyName || '')}" maxlength="250" style="${field}"></label>
+<label class="filter" style="flex:none;width:100%"><span>Billing email (optional)</span><input name="companyEmail" type="email" value="${esc(form.companyEmail || '')}" style="${field}"></label></div></div>
+<label class="filter" style="flex:none;width:100%"><span>Approver email (optional)</span><input name="approver" type="email" value="${esc(form.approver || '')}" placeholder="Who approves this deal's billbacks" style="${field}"></label>
+<div style="display:flex;gap:8px">${canCreate ? '<button class="btn primary" type="submit">Create deal</button>' : '<button class="btn primary" type="button" disabled>Create deal</button>'}<a class="btn" href="/deals">Cancel</a></div></form>`,
+  });
 }

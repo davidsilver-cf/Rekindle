@@ -27,6 +27,6 @@ export async function loadConfig() {
     ]);
     tags = { deals, billbackCustomers };
   }
-  const [setups, owners] = await Promise.all([store.getSetups(), store.getOwners()]);
-  return effectiveConfig(config, { tags, setups, owners });
+  const [setups, owners, links] = await Promise.all([store.getSetups(), store.getOwners(), store.getCustomerLinks()]);
+  return effectiveConfig(config, { tags, setups, owners, links });
 }

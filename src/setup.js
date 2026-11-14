@@ -9,12 +9,12 @@ const fileCustomer = (c) => (c ? { name: c.name, billbackTagId: c.billbackTagId,
 
 // Billback customers someone can pick: live Billback Customer tags, or (demo)
 // the customers named in the starter file.
-export function billbackCustomers(base, tags) {
+export function billbackCustomers(base, tags, links = new Map()) {
   if (tags?.billbackCustomers) {
     return tags.billbackCustomers
       .map((t) => {
         const known = [...base.deals.map((d) => d.customer), ...base.allocations.map((a) => a.customer)].find((c) => c && c.billbackTagId === t.id);
-        return { name: t.name, billbackTagId: t.id, customerId: t.customer ?? known?.customerId ?? null, campfireId: known?.campfireId ?? null };
+        return { name: t.name, billbackTagId: t.id, customerId: t.customer ?? links.get(Number(t.id)) ?? known?.customerId ?? null, campfireId: known?.campfireId ?? null };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -30,8 +30,8 @@ export function billbackCustomers(base, tags) {
 //   tags:    { deals, billbackCustomers } from Campfire, or null in demo mode
 //   setups:  Map dealsTagId → { billingType, customer } saved in Rekindle
 //   owners:  [{ dealsTagId, customer, percent, start, end }] saved in Rekindle
-export function effectiveConfig(base, { tags = null, setups = new Map(), owners = [] } = {}) {
-  const customers = billbackCustomers(base, tags);
+export function effectiveConfig(base, { tags = null, setups = new Map(), owners = [], links = new Map() } = {}) {
+  const customers = billbackCustomers(base, tags, links);
   const dealTags = tags?.deals
     ? tags.deals.map((t) => ({ id: t.id, name: t.name }))
     : base.deals.map((d) => ({ id: d.dealsTagId, name: d.dealsTag }));

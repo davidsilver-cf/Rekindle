@@ -20,7 +20,8 @@ const tags = {
   46612: [tag(1027957, 'Deal XYZ', 46612, 22874410), tag(1027953, 'Fund I', 46612, 22874359), tag(1027955, 'Fund II Main', 46612, 22874366), tag(1027954, 'Fund II Co-Invest', 46612, 22874367), tag(1027956, 'Fund II Employees Only', 46612, 22874368)],
   46589: [tag(LEGAL, 'Legal', 46589), tag(1027806, 'Expense - Meals', 46589), tag(1027807, 'Expense - Travel', 46589), tag(1027999, 'Zebra', 46589)],
 };
-const sent = { jes: [], patches: [] };
+const sent = { jes: [], patches: [], tags: [], customers: [] };
+const customers = [];
 let failNext = null;
 const fake = http.createServer((req, res) => {
   let body = [];
@@ -43,7 +44,21 @@ const fake = http.createServer((req, res) => {
       }
       return json(200, b);
     }
+    if (url.pathname === '/coa/api/tag' && req.method === 'POST') {
+      const t = JSON.parse(body);
+      sent.tags.push(t);
+      const made = tag(2000000 + sent.tags.length, t.name, t.group, null); // Campfire ignores customer on create
+      (tags[t.group] = tags[t.group] || []).push(made);
+      return json(201, made);
+    }
     if (url.pathname === '/coa/api/v1/tag' || url.pathname === '/coa/api/tag') { const r = tags[url.searchParams.get('group')] || []; return json(200, { results: r }); }
+    if (url.pathname === '/coa/api/vendor' && req.method === 'GET') return json(200, { results: customers.filter((c) => c.name.toLowerCase().includes((url.searchParams.get('q') || '').toLowerCase())) });
+    if (url.pathname === '/coa/api/vendor' && req.method === 'POST') {
+      const c = { id: 3000000 + customers.length + 1, vendor_type: 'customer', ...JSON.parse(body) };
+      customers.push(c);
+      sent.customers.push(c);
+      return json(201, c);
+    }
     if (url.pathname === '/coa/api/account/balance-sheet') return json(200, { results: [{ id: 6100, name: 'Legal expense', number: '6100', name_and_number: '6100 - Legal expense', status: 'ACTIVE' }, { id: 6200, name: 'Travel', number: '6200', status: 'ACTIVE' }, { id: 6300, name: 'Expense - Meals', number: '6300', name_and_number: '6300 - Expense - Meals', status: 'ACTIVE', default_tags: [{ id: 1027806, name: 'Expense - Meals', group: 46589 }] }] });
     if (url.pathname === '/coa/api/journal_entry' && req.method === 'POST') {
       if (failNext === '400') { failNext = null; return json(400, { transactions: ['bad account'] }); }
@@ -166,4 +181,40 @@ test('Fill by name sets unset categories and leaves set ones alone', async () =>
   assert.equal(saved.get(1027807).account_id, 6200);
   assert.equal(saved.get(LEGAL).account_id, 6100);
   assert.ok(!saved.get(1027999));
+});
+
+test('New deal: creates the company, its Billback Customer tag and the Deals tag in Campfire, sets it up, and never duplicates', async () => {
+  const page = await (await get('/deals')).text();
+  assert.match(page, /href="\/deals\/new">New deal</);
+  assert.match(await (await get('/deals/new')).text(), /<option value="new">New company…<\/option>/);
+  // Validation: a deal that exists, a missing company name.
+  let r = await post('/deals/create', { name: 'Fund I', billingType: 'Fund', customer: '1027953' });
+  assert.equal(r.status, 400);
+  assert.match(await r.text(), /already a deal called/);
+  r = await post('/deals/create', { name: 'Project Atlas', billingType: 'Deal', customer: 'new', companyName: '' });
+  assert.match(await r.text(), /Enter the new company/);
+
+  r = await post('/deals/create', { name: 'Project Atlas', billingType: 'Deal', customer: 'new', companyName: 'Atlas Holdings', companyEmail: 'ap@atlas.com', approver: 'pat@campfire.ai' });
+  assert.equal(r.headers.get('location'), '/deals?deal=Project%20Atlas&created=1');
+  assert.deepEqual(sent.customers.map((c) => [c.vendor_type, c.name, c.email]), [['customer', 'Atlas Holdings', 'ap@atlas.com']]);
+  assert.deepEqual(sent.tags.map((t) => [t.name, t.group]), [['Atlas Holdings', 46612], ['Project Atlas', 46588]]);
+  assert.equal(sent.tags[0].customer, sent.customers[0].id);
+  const page2 = await (await get('/deals?deal=Project%20Atlas')).text();
+  assert.match(page2, /Deal · bills Atlas Holdings/);
+  assert.match(page2, /<b>pat@campfire\.ai<\/b> approves/);
+  // The Billback Customer is linked to the new customer even though Campfire didn't store it on the tag.
+  const { loadConfig } = await import('../src/config.js');
+  const cfg = await loadConfig();
+  assert.equal(cfg.billbackCustomers.find((c) => c.name === 'Atlas Holdings').customerId, sent.customers[0].id);
+  // A second try with the same names doesn't create anything new.
+  r = await post('/deals/create', { name: 'Project Atlas', billingType: 'Deal', customer: 'new', companyName: 'Atlas Holdings' });
+  assert.equal(r.status, 400);
+  assert.equal(sent.customers.length, 1);
+  assert.equal(sent.tags.length, 2);
+  // Allocation: created, then owners next.
+  r = await post('/deals/create', { name: 'Project Beacon', billingType: 'Allocation' });
+  assert.equal(r.headers.get('location'), '/deals?deal=Project%20Beacon&created=1&owners=1');
+  // Non-admins can't.
+  const viewer = `rekindle_session=${makeSession({ email: 'pat@campfire.ai', name: 'Pat', via: 'google' })}`;
+  assert.equal((await fetch(`${base}/deals/new`, { headers: { cookie: viewer } })).status, 403);
 });

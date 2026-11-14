@@ -51,6 +51,8 @@ ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_tok
 ON CONFLICT (campfire_user_id) DO UPDATE SET workspace = EXCLUDED.workspace, email = EXCLUDED.email, linked_at = now()`,
   deleteUserLink: 'DELETE FROM campfire_user_links WHERE campfire_user_id = $1',
   admins: 'SELECT email, added_by, added_at FROM rekindle_admins ORDER BY email',
+  customerLinks: 'SELECT tag_id, customer_id FROM billback_customer_links',
+  saveCustomerLink: 'INSERT INTO billback_customer_links (tag_id, customer_id, created_by) VALUES ($1, $2, $3) ON CONFLICT (tag_id) DO UPDATE SET customer_id = EXCLUDED.customer_id',
   reclassAccounts: 'SELECT category_tag_id, category_name, account_id, account_label, updated_by, updated_at FROM reclass_accounts',
   saveReclassAccount: `INSERT INTO reclass_accounts (category_tag_id, category_name, account_id, account_label, updated_by, updated_at) VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT (category_tag_id) DO UPDATE SET category_name = EXCLUDED.category_name, account_id = EXCLUDED.account_id, account_label = EXCLUDED.account_label, updated_by = EXCLUDED.updated_by, updated_at = now()`,
@@ -89,6 +91,7 @@ export function memoryStore() {
   let connection = null;
   const userLinks = new Map();
   const admins = new Map();
+  const customerLinks = new Map();
   const reclassAccounts = new Map();
   const reclassRuns = [];
   const reclassItems = [];
@@ -108,6 +111,8 @@ export function memoryStore() {
     async saveUserLink({ campfireUserId, workspace, email }) { userLinks.delete(String(campfireUserId)); userLinks.set(String(campfireUserId), { campfire_user_id: String(campfireUserId), workspace: workspace == null ? null : String(workspace), email, linked_at: new Date().toISOString() }); },
     async deleteUserLink(id) { userLinks.delete(String(id)); },
     async listAdmins() { return [...admins.values()].sort((a, b) => a.email.localeCompare(b.email)); },
+    async getCustomerLinks() { return new Map(customerLinks); },
+    async saveCustomerLink(tagId, customerId) { customerLinks.set(Number(tagId), Number(customerId)); },
     async getReclassAccounts() { return new Map([...reclassAccounts.values()].map((a) => [Number(a.category_tag_id), { ...a }])); },
     async saveReclassAccount({ categoryTagId, categoryName, accountId, accountLabel, by }) { reclassAccounts.set(Number(categoryTagId), { category_tag_id: Number(categoryTagId), category_name: categoryName, account_id: Number(accountId), account_label: accountLabel || null, updated_by: by, updated_at: new Date().toISOString() }); },
     async deleteReclassAccount(id) { reclassAccounts.delete(Number(id)); },
@@ -220,6 +225,8 @@ export async function postgresStore(connectionString) {
     async saveUserLink({ campfireUserId, workspace, email }) { await q(SQL.saveUserLink, [String(campfireUserId), workspace == null ? null : String(workspace), email]); },
     async deleteUserLink(id) { await q(SQL.deleteUserLink, [String(id)]); },
     async listAdmins() { return (await q(SQL.admins)).rows; },
+    async getCustomerLinks() { return new Map((await q(SQL.customerLinks)).rows.map((r) => [Number(r.tag_id), Number(r.customer_id)])); },
+    async saveCustomerLink(tagId, customerId, by = 'rekindle') { await q(SQL.saveCustomerLink, [tagId, customerId, by]); },
     async getReclassAccounts() { return new Map((await q(SQL.reclassAccounts)).rows.map((a) => [Number(a.category_tag_id), { ...a, category_tag_id: Number(a.category_tag_id), account_id: Number(a.account_id) }])); },
     async saveReclassAccount({ categoryTagId, categoryName, accountId, accountLabel, by }) { await q(SQL.saveReclassAccount, [categoryTagId, categoryName, accountId, accountLabel || null, by]); },
     async deleteReclassAccount(id) { await q(SQL.deleteReclassAccount, [id]); },

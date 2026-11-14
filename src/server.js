@@ -14,7 +14,8 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName } from './campfire.js';
+import { validateNewDeal, createDeal } from './newdeal.js';
 import { waitingLines, prepareReclass, startReclass, advanceReclass, todayISO, matchAccount } from './reclass.js';
 import { processBills } from './process.js';
 import { planBills, planLine } from './engine.js';
@@ -22,7 +23,7 @@ import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage, reclassPage, confirmReclassPage } from './ui.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage, reclassPage, confirmReclassPage, newDealPage } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail, LINK_COOKIE, makeLinkToken, readLinkToken, isUnlinkedCampfireUser, setSettingsAdmins, envAdmins } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
@@ -38,6 +39,7 @@ const STATIC = {
   '/static/queue.js': { file: '../public/queue.js', type: 'text/javascript; charset=utf-8' },
   '/static/deals.js': { file: '../public/deals.js', type: 'text/javascript; charset=utf-8' },
   '/static/link.js': { file: '../public/link.js', type: 'text/javascript; charset=utf-8' },
+  '/static/newdeal.js': { file: '../public/newdeal.js', type: 'text/javascript; charset=utf-8' },
   // The Rekindle flame as the browser-tab icon (/favicon.ico for browsers that ask for it directly).
   '/favicon.svg': { file: '../public/favicon.svg', type: 'image/svg+xml' },
   '/favicon.ico': { file: '../public/favicon.svg', type: 'image/svg+xml' },
@@ -246,7 +248,9 @@ const SCREENS = {
     }
     return queuePage(ctx, flash, readFilters(s));
   },
-  '/deals': (ctx, url) => dealsPage(ctx, url.searchParams.get('deal'), url.searchParams.has('saved') ? { ok: true, text: 'Deal setup saved. The queue and approvals use it right away.' } : null),
+  '/deals': (ctx, url) => dealsPage(ctx, url.searchParams.get('deal'), url.searchParams.has('created')
+    ? { ok: true, text: url.searchParams.has('owners') ? 'Deal created in Campfire. Add its owners and shares below, then Save setup.' : 'Deal created in Campfire and set up. AP can code bills to it now.' }
+    : url.searchParams.has('saved') ? { ok: true, text: 'Deal setup saved. The queue and approvals use it right away.' } : null),
   '/approvals': (ctx, url) => {
     const r = url.searchParams.get('result');
     const flash = {
@@ -861,6 +865,29 @@ async function handle(req, res) {
     const pdf = Buffer.from(run.pdf);
     res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="Invoice-${String(run.invoice_number || run.ref).replace(/[^A-Za-z0-9-]+/g, '-')}.pdf"`, 'Content-Length': pdf.length, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' });
     return res.end(pdf);
+  }
+
+  // ---- New deal: create it in Campfire (and a new company, if asked) and set it up.
+  if (url.pathname === '/deals/new' || url.pathname === '/deals/create') {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can create deals.');
+    const ctx = { ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/deals/new' };
+    const canCreate = !demoMode() && writeEnabled();
+    if (req.method === 'GET' && url.pathname === '/deals/new') return html(res, newDealPage(ctx, { canCreate }));
+    if (req.method !== 'POST' || url.pathname !== '/deals/create') return send(res, 405, 'Method not allowed');
+    const form = Object.fromEntries(new URLSearchParams(await readBody(req)));
+    if (!canCreate) return html(res, newDealPage(ctx, { canCreate, form, errors: [demoMode() ? 'Demo mode: connect Campfire to create deals.' : 'Writing to Campfire is off (REKINDLE_WRITE).'] }), 400);
+    const plan = validateNewDeal(form, ctx.config);
+    if (plan.errors.length) return html(res, newDealPage(ctx, { canCreate, form, errors: plan.errors }), 400);
+    try {
+      const store = await getStore();
+      const out = await createDeal(plan, { config: ctx.config, store, api: { createTag, createCustomer, findCustomerByName, listTags }, user, log: console.log });
+      const next = plan.billingType === 'Allocation' ? '&owners=1' : '';
+      return redirect(res, `/deals?deal=${encodeURIComponent(plan.name)}&created=1${next}`);
+    } catch (err) {
+      console.log(JSON.stringify({ event: 'deal_create_failed', deal: plan.name, error: err.message }));
+      return html(res, newDealPage(ctx, { canCreate, form, errors: [`Campfire refused part of this: ${err.message}. Anything already created is kept and will be reused when you try again.`] }), 502);
+    }
   }
 
   if (req.method === 'POST' && url.pathname === '/deals/setup') {
