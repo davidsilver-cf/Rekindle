@@ -111,6 +111,7 @@ async function linkedFor(campfireUserId) {
 }
 
 // After a sign-in in a tab opened by "Link my account": tie the Campfire user to this email.
+const campfireSignIn = () => oauthConfigured() && process.env.REKINDLE_CAMPFIRE_SIGNIN === 'true';
 const linkUrlFor = (user, req) => (isUnlinkedCampfireUser(user) ? `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}/link/start?t=${encodeURIComponent(makeLinkToken(user))}` : null);
 const linkPending = (req) => readLinkToken(cookieValue(req, LINK_COOKIE));
 const clearLink = (req) => `${LINK_COOKIE}=; HttpOnly; Path=/; Max-Age=0${req.headers['x-forwarded-proto'] === 'https' ? '; Secure; SameSite=Lax' : '; SameSite=Lax'}`;
@@ -357,7 +358,9 @@ async function handle(req, res) {
   }
 
   // ---- Sign in / out
-  const loginOpts = { google: googleConfigured(), campfire: oauthConfigured(), token: Boolean(process.env.REKINDLE_ADMIN_TOKEN), embed };
+  // "Sign in with Campfire" needs the app to be allowed openid/email/profile,
+  // which Campfire doesn't offer yet, so it's off unless REKINDLE_CAMPFIRE_SIGNIN=true.
+  const loginOpts = { google: googleConfigured(), campfire: campfireSignIn(), token: Boolean(process.env.REKINDLE_ADMIN_TOKEN), embed };
   if (url.pathname === '/login') {
     if (req.method === 'GET') return html(res, loginPage(null, loginOpts));
     if (req.method === 'POST') {
@@ -475,6 +478,7 @@ async function handle(req, res) {
   if (req.method === 'GET' && (url.pathname === '/connect/campfire' || url.pathname === '/auth/campfire')) {
     if (!oauthConfigured()) return html(res, loginPage('The Campfire app isn\'t set up yet: add CAMPFIRE_CLIENT_ID and CAMPFIRE_CLIENT_SECRET on Render.', loginOpts), 503);
     const purpose = url.pathname === '/connect/campfire' ? 'connect' : 'login';
+    if (purpose === 'login' && !campfireSignIn()) return redirect(res, '/login');
     try {
       const a = await startAuth(req, purpose);
       const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
@@ -543,7 +547,7 @@ async function handle(req, res) {
       }
     }
     if (user) return redirect(res, '/');
-    return redirect(res, oauthConfigured() ? '/auth/campfire' : '/login');
+    return redirect(res, campfireSignIn() ? '/auth/campfire' : '/login');
   }
 
   // ---- Settings: the Campfire connection

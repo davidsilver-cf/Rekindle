@@ -74,7 +74,7 @@ before(async () => {
   Object.assign(process.env, {
     CAMPFIRE_BASE_URL: `http://localhost:${fake.address().port}`, CAMPFIRE_CLIENT_ID: 'cid', CAMPFIRE_CLIENT_SECRET: 'shh',
     REKINDLE_ADMIN_TOKEN: 'tok', SESSION_SECRET: 'test-secret', REKINDLE_ADMINS: 'david@campfire.ai', REKINDLE_ALLOWED_DOMAIN: 'campfire.ai',
-    CAMPFIRE_OAUTH_SCOPES: 'accounting:read accounting:write',
+    CAMPFIRE_OAUTH_SCOPES: 'accounting:read accounting:write', REKINDLE_CAMPFIRE_SIGNIN: 'true',
   });
   delete process.env.CAMPFIRE_API_KEY;
   delete process.env.DATABASE_URL;
@@ -342,4 +342,15 @@ test('Settings: admins add and remove admins; the change applies at once; you ca
   assert.equal((await form('/admins/remove', 'sam@campfire.ai')).headers.get('location'), '/settings?admin=removed');
   assert.equal((await form('/admins/add', 'x@campfire.ai', sam)).status, 403);
   assert.equal((await form('/admins/add', 'not-an-email')).headers.get('location'), '/settings?admin=bad');
+});
+
+test('Sign in with Campfire is off unless REKINDLE_CAMPFIRE_SIGNIN=true (Campfire does not give apps identity yet)', async () => {
+  delete process.env.REKINDLE_CAMPFIRE_SIGNIN;
+  try {
+    assert.doesNotMatch(await (await fetch(`${base}/login`)).text(), /Sign in with Campfire/);
+    assert.equal((await fetch(`${base}/auth/campfire`, { redirect: 'manual' })).headers.get('location'), '/login');
+    assert.equal((await fetch(`${base}/campfire/manage`, { redirect: 'manual' })).headers.get('location'), '/login');
+    // Connecting still works.
+    assert.match((await fetch(`${base}/connect/campfire`, { redirect: 'manual' })).headers.get('location'), /\/oauth\/authorize/);
+  } finally { process.env.REKINDLE_CAMPFIRE_SIGNIN = 'true'; }
 });

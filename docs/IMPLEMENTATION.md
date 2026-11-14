@@ -278,6 +278,7 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | `CAMPFIRE_API_KEY` | Fallback | Used only for calls the app is refused; delete once Settings lists none |
 | `CAMPFIRE_OAUTH_SCOPES` | Optional | Scopes to request; blank = the app's allowed scopes |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional | Google sign-in |
+| `REKINDLE_CAMPFIRE_SIGNIN` | Optional | `true` shows **Sign in with Campfire**; leave off until Campfire lets apps request openid, email, profile |
 | `REKINDLE_FRAME_ANCESTORS` | Optional | Sites allowed to show Rekindle in a frame (default: Campfire) |
 | `REKINDLE_DEMO` | Optional | `true` shows the test bill instead of live data |
 
