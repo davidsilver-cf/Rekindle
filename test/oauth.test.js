@@ -249,14 +249,15 @@ test("Campfire's context (user and workspace IDs, no email) signs people in on a
   const r = await fetch(`${base}/settings?cf_ctx=${ctx()}`, { headers: { 'sec-fetch-dest': 'iframe' } });
   const page = await r.text();
   assert.match(page, /Signed in from Campfire as user <b>4242<\/b> in workspace <b>57560<\/b>/);
-  assert.match(page, /add <code>4242=your@email<\/code> to <code>REKINDLE_CAMPFIRE_USERS<\/code>/);
+  assert.match(page, /Not linked to a Rekindle email yet/);
+  assert.match(page, /href="\/link\/start\?t=[^"]+" target="_blank" rel="noopener">Link my account/);
   // Linked to an email: that person's admin rights and approvals apply.
   process.env.REKINDLE_CAMPFIRE_USERS = '4242=david@campfire.ai';
   const linked = await (await fetch(`${base}/settings?cf_ctx=${ctx()}`)).text();
   assert.match(linked, /Linked to <b>david@campfire\.ai<\/b>\. You are an admin\./);
   assert.doesNotMatch(linked, /isn't linked to a Rekindle email/);
   delete process.env.REKINDLE_CAMPFIRE_USERS;
-  assert.match(await (await fetch(`${base}/?cf_ctx=${ctx()}`)).text(), /isn't linked to a Rekindle email yet/);
+  assert.match(await (await fetch(`${base}/?cf_ctx=${ctx()}`)).text(), />Link my account</);
   // Made an admin by Campfire user ID.
   process.env.REKINDLE_ADMINS = 'david@campfire.ai,campfire:4242';
   assert.match(await (await fetch(`${base}/settings?cf_ctx=${ctx()}`)).text(), /You are an admin/);
@@ -278,4 +279,37 @@ test('appearance: /theme remembers light or dark, auto clears it, and back must 
   assert.match(await (await fetch(`${base}/login`, { headers: { cookie } })).text(), /<html lang="en" data-theme="dark"/);
   assert.match(await (await fetch(`${base}/login`)).text(), /<html lang="en"><head>/);
   assert.equal((await fetch(`${base}/theme?set=auto&back=//evil.example`, { redirect: 'manual' })).headers.get('location'), '/');
+});
+
+test('Link my account: an unlinked Campfire user links once by signing in, then has their own rights inside Campfire', async () => {
+  const hex = createHash('sha256').update('shh').digest('hex');
+  const ctx = () => jwt({ iss: 'campfire', aud: 'cid', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 300, customer_id: 57560, user_id: 7777, surface: 'navigation' }, hex);
+  // Inside Campfire, unlinked: a viewer, with the link button.
+  const r1 = await fetch(`${base}/approvals?cf_ctx=${ctx()}`, { headers: { 'sec-fetch-dest': 'iframe' } });
+  const frameCookie = cookieOf(r1);
+  const page = await r1.text();
+  assert.doesNotMatch(page, /Approve \$/);
+  const start = page.match(/href="(\/link\/start\?t=[^"]+)"/)[1].replace(/&amp;/g, '&');
+  // A token can't be used as a session.
+  const t = decodeURIComponent(start.split('t=')[1]);
+  assert.match(await (await fetch(`${base}/approvals`, { headers: { cookie: `rekindle_session=${t}` }, redirect: 'manual' })).headers.get('location'), /login/);
+  // New tab: not signed in, so it asks to sign in; signing in with Campfire finishes the link.
+  const r2 = await fetch(base + start, { redirect: 'manual' });
+  assert.match(await r2.text(), /Sign in with Campfire/);
+  const linkCookie = cookieOf(r2);
+  who = 'david@campfire.ai';
+  const r3 = await dance('/auth/campfire', linkCookie);
+  assert.equal(r3.headers.get('location'), '/link/finish');
+  const done = await fetch(`${base}/link/finish`, { headers: { cookie: `${cookieOf(r3)}; ${linkCookie}` } });
+  assert.match(await done.text(), /Linked to <b>david@campfire\.ai<\/b>/);
+  // Back in Campfire, Reload (same old session cookie, no cf_ctx): now David, an admin.
+  const r4 = await fetch(`${base}/approvals`, { headers: { cookie: frameCookie } });
+  assert.match(await r4.text(), /Approve \$|approved/);
+  // Admins see who's linked, and can unlink.
+  const admin = `rekindle_session=${makeSession({ email: 'david@campfire.ai', name: 'D', via: 'google' })}`;
+  assert.match(await (await fetch(`${base}/settings`, { headers: { cookie: admin } })).text(), /People linked from Campfire[\s\S]*david@campfire\.ai<\/td><td>7777/);
+  await fetch(`${base}/link/remove`, { method: 'POST', headers: { cookie: admin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'campfire_user=7777', redirect: 'manual' });
+  assert.match(await (await fetch(`${base}/approvals?cf_ctx=${ctx()}`)).text(), />Link my account</);
+  // An expired or forged link token is refused.
+  assert.equal((await fetch(`${base}/link/start?t=nope`)).status, 400);
 });

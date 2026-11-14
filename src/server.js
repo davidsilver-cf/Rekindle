@@ -21,8 +21,8 @@ import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage } from './ui.js';
-import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail } from './session.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage } from './ui.js';
+import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail, LINK_COOKIE, makeLinkToken, readLinkToken, isUnlinkedCampfireUser } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
 import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
@@ -88,15 +88,30 @@ function crossSitePost(req) {
   return origin !== `${proto}://${req.headers.host}`;
 }
 
-// The Rekindle user for a verified Campfire context: by email when it has
-// one, else by Campfire user ID within an allowed workspace.
-function contextUser(who) {
+// The Rekindle user for a verified Campfire context: by email when Campfire
+// sends one, else by Campfire user ID within an allowed workspace, as the
+// email that ID is linked to (REKINDLE_CAMPFIRE_USERS, or linked by the
+// person themselves), else as an unlinked Campfire user.
+async function contextUser(who) {
   if (who.email) return allowedToSignIn(who.email) ? { email: who.email, name: who.name, via: 'campfire', campfireUserId: who.userId } : null;
   if (who.userId == null || !allowedWorkspace(who.workspace)) return null;
-  const linked = linkedEmail(who.userId);
+  const linked = await linkedFor(who.userId);
   if (linked) return { email: linked, name: linked, via: 'campfire', campfireUserId: who.userId, workspace: who.workspace };
   return { email: `campfire-user-${who.userId}`, name: `Campfire user ${who.userId}`, via: 'campfire', campfireUserId: who.userId, workspace: who.workspace };
 }
+async function linkedFor(campfireUserId) {
+  const fromEnv = linkedEmail(campfireUserId);
+  if (fromEnv) return fromEnv;
+  try {
+    const l = await (await getStore()).getUserLink(campfireUserId);
+    return l && allowedToSignIn(l.email) ? l.email : null;
+  } catch { return null; }
+}
+
+// After a sign-in in a tab opened by "Link my account": tie the Campfire user to this email.
+const linkUrlFor = (user) => (isUnlinkedCampfireUser(user) ? `/link/start?t=${encodeURIComponent(makeLinkToken(user))}` : null);
+const linkPending = (req) => readLinkToken(cookieValue(req, LINK_COOKIE));
+const clearLink = (req) => `${LINK_COOKIE}=; HttpOnly; Path=/; Max-Age=0${req.headers['x-forwarded-proto'] === 'https' ? '; Secure; SameSite=Lax' : '; SameSite=Lax'}`;
 
 // Diagnostics for a cf_ctx that didn't verify: its header and claim names, never values.
 function describeToken(t) {
@@ -259,6 +274,15 @@ async function handle(req, res) {
     return redirect(res, to, { 'Set-Cookie': cookie });
   }
 
+  // Signed in from Campfire before linking: pick up a link made since.
+  if (isUnlinkedCampfireUser(user)) {
+    const linked = await linkedFor(user.campfireUserId);
+    if (linked) {
+      user = { email: linked, name: linked, via: 'campfire', campfireUserId: user.campfireUserId, workspace: user.workspace };
+      res.setHeader('Set-Cookie', sessionCookie(makeSession(user), req));
+    }
+  }
+
   // Server-to-server and token calls carry no cookie; everything else must come from Rekindle's own pages.
   const tokenCall = url.searchParams.has('token') || /^Bearer\s/i.test(req.headers.authorization || '');
   if (url.pathname !== '/webhooks/campfire' && !tokenCall && crossSitePost(req)) {
@@ -272,7 +296,7 @@ async function handle(req, res) {
     const t = url.searchParams.get('cf_ctx');
     try {
       const who = await verifyContext(t);
-      const u = contextUser(who);
+      const u = await contextUser(who);
       if (u) {
         user = u;
         res.setHeader('Set-Cookie', sessionCookie(makeSession(user), req));
@@ -334,12 +358,50 @@ async function handle(req, res) {
       }
       const store = await getStore();
       await store.audit(who.email, 'sign_in', { via: 'google' });
-      res.writeHead(303, { Location: '/', 'Set-Cookie': [sessionCookie(makeSession({ ...who, via: 'google' }), req), clear] });
+      res.writeHead(303, { Location: linkPending(req) ? '/link/finish' : '/', 'Set-Cookie': [sessionCookie(makeSession({ ...who, via: 'google' }), req), clear] });
       return res.end();
     } catch (err) {
       console.log(JSON.stringify({ event: 'login_error', error: err.message }));
       return html(res, loginPage('Google sign-in failed. Try again.', loginOpts), 400);
     }
+  }
+
+  // ---- Link my account: a Campfire user (known only by ID) ties themselves to
+  // their email by signing in once in a new tab.
+  if (req.method === 'GET' && url.pathname === '/link/start') {
+    const t = url.searchParams.get('t');
+    const link = readLinkToken(t);
+    if (!link) return html(res, linkPage({ state: 'expired', loginOpts }), 400);
+    const cookie = `${LINK_COOKIE}=${t}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`;
+    // Already signed in here with a real email (not the access token): link now.
+    if (user?.email && user.via !== 'token' && !isUnlinkedCampfireUser(user) && allowedToSignIn(user.email)) {
+      return redirect(res, '/link/finish', { 'Set-Cookie': cookie });
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': cookie, 'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'`, 'Referrer-Policy': 'same-origin' });
+    return res.end(linkPage({ state: 'signin', loginOpts }));
+  }
+  if (req.method === 'GET' && url.pathname === '/link/finish') {
+    const link = linkPending(req);
+    if (!link) return html(res, linkPage({ state: 'expired', loginOpts }), 400);
+    if (!user?.email || user.via === 'token' || isUnlinkedCampfireUser(user) || !allowedToSignIn(user.email)) {
+      return html(res, linkPage({ state: 'signin', loginOpts }));
+    }
+    if (!allowedWorkspace(link.workspace)) return html(res, linkPage({ state: 'workspace', loginOpts }), 403);
+    const store = await getStore();
+    await store.saveUserLink({ campfireUserId: link.campfireUserId, workspace: link.workspace, email: user.email });
+    await store.audit(user.email, 'campfire_user_linked', { campfireUserId: link.campfireUserId, workspace: link.workspace });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': clearLink(req) });
+    return res.end(linkPage({ state: 'done', email: user.email, loginOpts }));
+  }
+  if (req.method === 'POST' && url.pathname === '/link/remove') {
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can unlink people.');
+    const id = new URLSearchParams(await readBody(req)).get('campfire_user');
+    if (id) {
+      const store = await getStore();
+      await store.deleteUserLink(id);
+      await store.audit(user.email, 'campfire_user_unlinked', { campfireUserId: id });
+    }
+    return redirect(res, '/settings');
   }
 
   // ---- Campfire OAuth app.
@@ -390,7 +452,7 @@ async function handle(req, res) {
         await store.audit(who.email, 'sign_in', { via: 'campfire' });
       }
       const session = who.fromSession ? [] : [sessionCookie(makeSession({ email: who.email, name: who.name, via: 'campfire' }), req)];
-      res.writeHead(303, { Location: to, 'Set-Cookie': [...session, clear] });
+      res.writeHead(303, { Location: purpose === 'login' && linkPending(req) ? '/link/finish' : to, 'Set-Cookie': [...session, clear] });
       return res.end();
     } catch (err) {
       console.log(JSON.stringify({ event: 'campfire_callback_error', error: err.message }));
@@ -405,7 +467,7 @@ async function handle(req, res) {
     if (ctxToken) {
       try {
         const who = await verifyContext(ctxToken);
-        const u = contextUser(who);
+        const u = await contextUser(who);
         if (u) {
           const store = await getStore();
           await store.audit(u.email, 'sign_in', { via: 'campfire_manage', workspace: who.workspace });
@@ -438,7 +500,8 @@ async function handle(req, res) {
     const s = url.searchParams;
     const flash = s.has('connected') ? { ok: true, text: 'Connected to Campfire. Rekindle now reads and writes with this connection.' }
       : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' } : null;
-    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', settings: {
+    const links = isAdmin(user) ? await (await getStore()).listUserLinks().catch(() => []) : [];
+    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user), links, settings: {
       appConfigured: oauthConfigured(),
       apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
       scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',
@@ -464,7 +527,7 @@ async function handle(req, res) {
     if (!user) return redirect(res, '/login');
     const id = Number(panel[2]);
     const store = await getStore();
-    const base = { user, admin: isAdmin(user), write: writeEnabled(), demo: demoMode(), back: url.pathname, flash: url.searchParams.get('retagged') };
+    const base = { user, admin: isAdmin(user), write: writeEnabled(), demo: demoMode(), back: url.pathname, flash: url.searchParams.get('retagged'), linkUrl: linkUrlFor(user) };
     try {
       if (panel[1] === 'bill') {
         const [config, bill] = await Promise.all([loadConfig(), demoMode() ? loadBills().then((b) => b.find((x) => x.id === id)) : getBill(id)]);
@@ -492,7 +555,7 @@ async function handle(req, res) {
   // ---- Screens and actions need a signed-in user
   if (req.method === 'GET' && SCREENS[url.pathname]) {
     if (!user) return redirect(res, '/login');
-    return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: url.pathname + url.search }, url));
+    return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: url.pathname + url.search, linkUrl: linkUrlFor(user) }, url));
   }
 
   if (req.method === 'GET' && url.pathname === '/invoices/pdf') {

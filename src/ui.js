@@ -112,6 +112,12 @@ table.owners select,table.owners input{min-height:36px;padding:0 8px;border:1px 
 
 const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7.5z"></path><path d="M6 21h12"></path></svg>`;
 
+// For someone signed in from Campfire who isn't linked to an email yet.
+export function linkBanner(ctx) {
+  if (!ctx.linkUrl || ctx.admin) return '';
+  return `<div class="banner demo" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><span>Link your Campfire account to Rekindle to stamp, approve and invoice. You'll sign in once in a new tab.</span><a class="btn sm primary" href="${esc(ctx.linkUrl)}" target="_blank" rel="noopener">Link my account</a></div>`;
+}
+
 // Light / Dark / Auto links; back = the page you're on.
 export function themeSwitch(current, back = '/') {
   const opt = (v, label) => `<a href="/theme?set=${v}&amp;back=${encodeURIComponent(back)}"${(current || 'auto') === v ? ' aria-current="true" style="font-weight:700;color:var(--ink)"' : ''}>${label}</a>`;
@@ -136,8 +142,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
     })
     .join('');
   // Signed in from Campfire but not linked to a Rekindle email: say why buttons are missing.
-  const unlinked = ctx.user?.campfireUserId != null && String(ctx.user.email || '').startsWith('campfire-user-') && !ctx.admin
-    ? `<div class="banner demo">You're signed in from Campfire as user <b>${esc(ctx.user.campfireUserId)}</b>, which isn't linked to a Rekindle email yet, so stamping, approving and invoicing are hidden. Ask an admin to add <code>${esc(ctx.user.campfireUserId)}=your@email</code> to <code>REKINDLE_CAMPFIRE_USERS</code> on Render.</div>` : '';
+  const unlinked = linkBanner(ctx);
   const source = unlinked + (ctx.demo
     ? `<div class="banner demo"><b>Demo data.</b> Showing test bill ABC_261106 from the repo. <a href="/settings">Connect Campfire</a> to read live bills.</div>`
     : '');
@@ -656,12 +661,32 @@ ${ep?.error ? row('Endpoints', `<span class="no">${esc(ep.error)}</span>`) : ep 
   return layout({
     active: 'settings', title: 'Settings', ctx,
     body: `${flashHtml}<div class="head"><div><h1 class="title">Settings</h1><p class="sub">How Rekindle connects to Campfire.</p></div></div>
-${ctx.user?.campfireUserId != null ? `<div class="banner ${ctx.admin ? 'good' : 'demo'}">Signed in from Campfire as user <b>${esc(ctx.user.campfireUserId)}</b>${ctx.user.workspace != null ? ` in workspace <b>${esc(ctx.user.workspace)}</b>` : ''}. ${String(ctx.user.email || '').startsWith('campfire-user-') ? `Link it to your Rekindle email so your admin rights and deal approvals apply: add <code>${esc(ctx.user.campfireUserId)}=your@email</code> to <code>REKINDLE_CAMPFIRE_USERS</code> on Render.` : `Linked to <b>${esc(ctx.user.email)}</b>.`} ${ctx.admin ? 'You are an admin.' : ''}${ctx.user.workspace != null ? ` To accept only this workspace, set <code>REKINDLE_CAMPFIRE_WORKSPACES</code> to <code>${esc(ctx.user.workspace)}</code>.` : ''}</div>` : ''}
+${ctx.user?.campfireUserId != null ? `<div class="banner ${ctx.admin ? 'good' : 'demo'}">Signed in from Campfire as user <b>${esc(ctx.user.campfireUserId)}</b>${ctx.user.workspace != null ? ` in workspace <b>${esc(ctx.user.workspace)}</b>` : ''}. ${String(ctx.user.email || '').startsWith('campfire-user-') ? 'Not linked to a Rekindle email yet: use <b>Link my account</b>, or an admin can add it in <code>REKINDLE_CAMPFIRE_USERS</code>.' : `Linked to <b>${esc(ctx.user.email)}</b>.`} ${ctx.admin ? 'You are an admin.' : ''}${ctx.user.workspace != null ? ` To accept only this workspace, set <code>REKINDLE_CAMPFIRE_WORKSPACES</code> to <code>${esc(ctx.user.workspace)}</code>.` : ''}</div>` : ''}
 ${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${esc(ctx.loadError)}</div>` : ''}
 <div class="card"><div class="pad"><h2 style="margin:0">Campfire connection</h2>${status}</div>${details}${actions}</div>
 ${st.fallbacks?.length ? `<div class="card"><div class="pad"><h2 style="margin:0">Still using the API key</h2><p class="sub" style="margin:0">Campfire refused the app these calls, so Rekindle made them with <code>CAMPFIRE_API_KEY</code>. Give the Rekindle app the matching permission in Campfire (Settings → Apps), reconnect, and keep the API key until this list stays empty.</p></div><div class="scroll"><table><thead><tr><th>Call</th><th class="num">Times</th><th>Last</th></tr></thead><tbody>${st.fallbacks.map((f) => `<tr><td><code>${esc(f.path)}</code></td><td class="num">${f.count}</td><td>${esc(atET(f.last))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+${ctx.admin ? linkedPeople(ctx.links || []) : ''}
 ${tech}`,
   });
+}
+
+function linkedPeople(links) {
+  const rows = links.map((l) => `<tr><td>${esc(l.email)}</td><td>${esc(l.campfire_user_id)}</td><td>${esc(l.workspace ?? '')}</td><td>${esc(atET(l.linked_at))}</td><td><form method="post" action="/link/remove"><input type="hidden" name="campfire_user" value="${esc(l.campfire_user_id)}"><button class="btn sm" type="submit">Unlink</button></form></td></tr>`).join('');
+  return `<div class="card"><div class="pad"><h2 style="margin:0">People linked from Campfire</h2><p class="sub" style="margin:0">Each person links once with <b>Link my account</b> inside Campfire. Their admin rights and deal approvals then follow them there.</p></div>
+${links.length ? `<div class="scroll"><table><thead><tr><th>Email</th><th>Campfire user</th><th>Workspace</th><th>Linked</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="pad"><span class="small muted">No one yet.</span></div>'}</div>`;
+}
+
+export function linkPage({ state, email, loginOpts = {} }) {
+  const body = {
+    signin: `<p class="sub" style="margin:0">Sign in to link your Campfire account to your Rekindle email. You only do this once.</p>
+${loginOpts.campfire ? '<a class="btn primary" href="/auth/campfire">Sign in with Campfire</a>' : ''}${loginOpts.google ? `<a class="btn${loginOpts.campfire ? '' : ' primary'}" href="/auth/google">Sign in with Google</a>` : ''}
+${!loginOpts.campfire && !loginOpts.google ? '<div class="banner bad">No sign-in with an email is set up, so this can\'t be linked here. Ask an admin to add you in <code>REKINDLE_CAMPFIRE_USERS</code>.</div>' : ''}`,
+    done: `<div class="banner good">Linked to <b>${esc(email || '')}</b>.</div><p class="sub" style="margin:0">Go back to Campfire and press Reload in Rekindle. You can close this tab.</p>`,
+    expired: '<div class="banner bad">This link has expired or isn\'t valid.</div><p class="sub" style="margin:0">Go back to Rekindle in Campfire and press <b>Link my account</b> again. Links last 10 minutes.</p>',
+    workspace: '<div class="banner bad">This Campfire workspace isn\'t one Rekindle serves.</div>',
+  }[state];
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Rekindle · Link your account</title><style>${CSS}</style></head>
+<body><main style="max-width:440px;margin:12vh auto"><div class="card pad" style="gap:16px;padding:28px">${FLAME}<h1>Link your account</h1>${body}</div></main></body></html>`;
 }
 
 // ---- Panels inside Campfire's bill and invoice pages
@@ -713,5 +738,5 @@ ${r.error ? `<div class="banner bad">${esc(r.error)}</div>` : ''}
 <div style="display:flex;gap:8px;flex-wrap:wrap">${r.has_pdf !== false && r.pdf !== null ? open(`/invoices/run/${r.id}/pdf`, 'Rekindle PDF', true) : ''}${retag}${open('/invoices', 'Open in Rekindle')}</div>`;
   }
   return `<!doctype html><html lang="en" class="embedded"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rekindle</title><style>${CSS}</style></head>
-<body><div class="panel">${p.demo ? '<div class="banner demo">Demo data</div>' : ''}${body}</div></body></html>`;
+<body><div class="panel">${p.demo ? '<div class="banner demo">Demo data</div>' : ''}${linkBanner(p)}${body}</div></body></html>`;
 }

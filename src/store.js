@@ -45,6 +45,11 @@ ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_tok
   connected_by = CASE WHEN $8 THEN EXCLUDED.connected_by ELSE campfire_connection.connected_by END,
   connected_at = CASE WHEN $8 THEN now() ELSE campfire_connection.connected_at END`,
   deleteConnection: 'DELETE FROM campfire_connection WHERE id = 1',
+  userLink: 'SELECT campfire_user_id, workspace, email, linked_at FROM campfire_user_links WHERE campfire_user_id = $1',
+  userLinks: 'SELECT campfire_user_id, workspace, email, linked_at FROM campfire_user_links ORDER BY linked_at DESC',
+  saveUserLink: `INSERT INTO campfire_user_links (campfire_user_id, workspace, email, linked_at) VALUES ($1, $2, $3, now())
+ON CONFLICT (campfire_user_id) DO UPDATE SET workspace = EXCLUDED.workspace, email = EXCLUDED.email, linked_at = now()`,
+  deleteUserLink: 'DELETE FROM campfire_user_links WHERE campfire_user_id = $1',
   runByInvoice: `SELECT id FROM invoice_runs WHERE campfire_invoice_id = $1 ORDER BY id DESC LIMIT 1`,
   invoicesForLines: `SELECT i.line_id, i.customer_tag_id, i.cents, i.percent, r.id AS run_id, r.invoice_number, r.campfire_invoice_id, r.status, r.customer_name
 FROM invoice_items i JOIN invoice_runs r ON r.id = i.run_id WHERE i.line_id = ANY($1::bigint[]) ORDER BY r.id`,
@@ -66,6 +71,7 @@ export function memoryStore() {
   let seq = 0;
   let runSeq = 0;
   let connection = null;
+  const userLinks = new Map();
   return {
     kind: 'memory',
     async init() {},
@@ -76,6 +82,10 @@ export function memoryStore() {
       connection = { ...c, connected_by: fresh || !connection ? c.connected_by : connection.connected_by, connected_at: fresh || !connection ? now : connection.connected_at, updated_at: now };
     },
     async deleteConnection() { connection = null; },
+    async getUserLink(id) { const l = userLinks.get(String(id)); return l ? { ...l } : null; },
+    async listUserLinks() { return [...userLinks.values()].reverse(); },
+    async saveUserLink({ campfireUserId, workspace, email }) { userLinks.delete(String(campfireUserId)); userLinks.set(String(campfireUserId), { campfire_user_id: String(campfireUserId), workspace: workspace == null ? null : String(workspace), email, linked_at: new Date().toISOString() }); },
+    async deleteUserLink(id) { userLinks.delete(String(id)); },
     async getApprovers() { return new Map(approvers); },
     async setApprover(dealsTagId, email, actor) {
       if (email) approvers.set(dealsTagId, email); else approvers.delete(dealsTagId);
@@ -164,6 +174,10 @@ export async function postgresStore(connectionString) {
       await q(SQL.saveConnection, [c.access_token, c.refresh_token, c.token_type, c.expires_at, c.scope, c.workspace == null ? null : JSON.stringify(c.workspace), c.connected_by || 'unknown', fresh]);
     },
     async deleteConnection() { await q(SQL.deleteConnection); },
+    async getUserLink(id) { const { rows } = await q(SQL.userLink, [String(id)]); return rows[0] || null; },
+    async listUserLinks() { return (await q(SQL.userLinks)).rows; },
+    async saveUserLink({ campfireUserId, workspace, email }) { await q(SQL.saveUserLink, [String(campfireUserId), workspace == null ? null : String(workspace), email]); },
+    async deleteUserLink(id) { await q(SQL.deleteUserLink, [String(id)]); },
     async getApprovers() {
       const { rows } = await q(SQL.approvers);
       return new Map(rows.map((r) => [Number(r.deals_tag_id), r.approver_email]));

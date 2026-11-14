@@ -185,7 +185,7 @@ Run one real bill end to end with writing switched on before handing over; it ca
 - [ ] Void the test invoice in Campfire and reverse the test bill
 - [ ] Settings shows Connected to Campfire with nothing under "Still using the API key" (then delete `CAMPFIRE_API_KEY`)
 - [ ] `REKINDLE_CAMPFIRE_WORKSPACES` set to the customer's workspace ID (shown on Settings)
-- [ ] Admins listed in `REKINDLE_ADMINS`, and every Campfire user linked to their email in `REKINDLE_CAMPFIRE_USERS` (each person's ID shows on Settings when they open it inside Campfire)
+- [ ] Admins listed in `REKINDLE_ADMINS`; each person opens Rekindle inside Campfire once and presses **Link my account** (approvers before their first approval)
 - [ ] Walk the finance team through the Day-to-day guide below
 
 ## Day-to-day user guide
@@ -198,7 +198,7 @@ The finance team's routine is: clear exceptions on the Billback Queue, get each 
 | Deals & Allocations | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; change owners and %; set approvers (admins) |
 | Approvals | The run grouped by deal, with each deal's total and status | Approvers **Approve** or **Send back** with a note; click a line count to see the lines |
 | Invoices | What each billback customer owes, and whether it's Ready | Download a draft PDF; tick customers and **Create selected**; Invoice history, Retry, Re-apply tags |
-| Settings | The Campfire connection | Connect, reconnect or disconnect (admins) |
+| Settings | The Campfire connection; people linked from Campfire | Connect, reconnect or disconnect; unlink people (admins) |
 
 Inside Campfire's own records:
 
@@ -237,7 +237,8 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | Campfire 403 on `/coa/api/tag` | The app's Tags permission doesn't reach the tags API yet (open with Campfire) | Keep `CAMPFIRE_API_KEY`; Rekindle uses it for that call |
 | `url_template: … is not one of the app's allowed domains` | Host not on the app | Add `<host>` to the app's allowed domains |
 | Inside Campfire it keeps asking to sign in; log `cf_ctx_rejected` | Signing secret missing or rotated | Rotate the app's signing secret into `CAMPFIRE_CONTEXT_SECRET` |
-| Inside Campfire: no Approve/Send back, no invoice checkboxes, no Stamp | The Campfire user isn't linked to a Rekindle email, so it isn't an admin or approver | Add `<user id>=their@email` (ID shown on Settings) to `REKINDLE_CAMPFIRE_USERS` |
+| Inside Campfire: no Approve/Send back, no invoice checkboxes, no Stamp | The Campfire user isn't linked to a Rekindle email, so it isn't an admin or approver | Press **Link my account** and sign in once; or an admin adds `<user id>=their@email` to `REKINDLE_CAMPFIRE_USERS` |
+| Link my account: "didn't say who you are" | The app lacks openid, email, profile | Turn on Identity for the app (Step 3b), or an admin adds the person in `REKINDLE_CAMPFIRE_USERS` |
 | "Refused: this form was sent from another site" | A form posted from outside Rekindle | Expected for other sites; if it's Rekindle's own form, report it |
 | A panel says "refused to connect" | Campfire's address isn't allowed to frame Rekindle | Add it to `REKINDLE_FRAME_ANCESTORS` |
 | Invoice history: **Check Campfire** | Rekindle couldn't tell whether the invoice was created | Search Campfire for the `RK-…` reference; press **It was created** (with its ID) or **It wasn't created** |
@@ -262,7 +263,7 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | `REKINDLE_WRITE` | To go live | `true` lets Rekindle write to Campfire |
 | `REKINDLE_ADMINS` | Yes | Admin emails and `campfire:<user id>` entries |
 | `REKINDLE_ALLOWED_DOMAIN`, `REKINDLE_ALLOWED_EMAILS` | Yes | Who may sign in with Google or Campfire |
-| `REKINDLE_CAMPFIRE_USERS` | Yes, for use inside Campfire | Links Campfire user IDs to Rekindle emails (`1234=jane@firm.com, 5678=…`), so admin rights and deal approvals apply inside Campfire |
+| `REKINDLE_CAMPFIRE_USERS` | Optional | Pre-links Campfire user IDs to emails (`1234=jane@firm.com, …`); people can also link themselves with **Link my account** |
 | `REKINDLE_CAMPFIRE_WORKSPACES` | Recommended | Campfire workspace IDs allowed to sign in from inside Campfire |
 | `CAMPFIRE_API_KEY` | Fallback | Used only for calls the app is refused; delete once Settings lists none |
 | `CAMPFIRE_OAUTH_SCOPES` | Optional | Scopes to request; blank = the app's allowed scopes |

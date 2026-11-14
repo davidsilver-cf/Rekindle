@@ -114,3 +114,12 @@ CREATE TABLE IF NOT EXISTS campfire_connection (
   connected_at   timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now()
 );
+
+-- Campfire users linked to their Rekindle email (each person links once from
+-- inside Campfire), so admin rights and deal approvals follow them there.
+CREATE TABLE IF NOT EXISTS campfire_user_links (
+  campfire_user_id text PRIMARY KEY,
+  workspace        text,
+  email            text NOT NULL,
+  linked_at        timestamptz NOT NULL DEFAULT now()
+);

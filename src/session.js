@@ -19,7 +19,9 @@ export function makeSession(user, now = Date.now()) {
   return `${data}.${sign(data)}`;
 }
 
-export function readSession(value, now = Date.now()) {
+// kind: a session cookie has none; a link token says k:'link'. Each is only
+// accepted where its own kind is expected.
+export function readSession(value, now = Date.now(), kind = undefined) {
   if (!value || !value.includes('.')) return null;
   const [data, mac] = value.split('.');
   const expected = sign(data);
@@ -29,6 +31,7 @@ export function readSession(value, now = Date.now()) {
   try {
     const s = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
     if (!s.exp || s.exp * 1000 < now) return null;
+    if (s.k !== kind) return null;
     return s;
   } catch {
     return null;
@@ -91,3 +94,18 @@ export function allowedToSignIn(email) {
   if (extra.includes(e) || emails(process.env.REKINDLE_ADMINS).includes(e)) return true;
   return Boolean(domain) && e.endsWith(`@${domain}`);
 }
+
+// A short-lived, signed "link my account" token for a Campfire user who is
+// signed in from inside Campfire (their ID came from a verified cf_ctx).
+// Opened in a new tab, it ties that ID to whoever then signs in there.
+export const LINK_COOKIE = 'rekindle_link';
+const LINK_TTL = 10 * 60;
+export function makeLinkToken({ campfireUserId, workspace }, now = Date.now()) {
+  const data = b64(JSON.stringify({ cu: String(campfireUserId), ws: workspace == null ? null : String(workspace), exp: Math.floor(now / 1000) + LINK_TTL, k: 'link' }));
+  return `${data}.${sign(data)}`;
+}
+export function readLinkToken(value, now = Date.now()) {
+  const s = readSession(value, now, 'link');
+  return s && s.k === 'link' && s.cu ? { campfireUserId: s.cu, workspace: s.ws } : null;
+}
+export const isUnlinkedCampfireUser = (user) => Boolean(user && user.campfireUserId != null && String(user.email || '').startsWith('campfire-user-'));
