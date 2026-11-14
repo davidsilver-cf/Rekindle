@@ -14,11 +14,12 @@ const emp = plan.customers.find((c) => c.customer.name === 'Fund II Employees On
 // Pull the text drawn on each page out of the PDF's content streams.
 const pageText = (buf) => [...buf.toString('latin1').matchAll(/stream\n([\s\S]*?)\nendstream/g)]
   .map((m) => inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1'))
-  .map((ops) => [...ops.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((x) => x[1].replace(/\\([()\\])/g, '$1')).join(' | '));
+  .map((ops) => [...ops.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)]
+    .map((x) => x[1].replace(/\\([0-7]{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8))).replace(/\\([()\\])/g, '$1')).join(' | '));
 
 test('invoice data: one line per recharge category, totals match', () => {
   const d = invoiceData({ customer: emp, plan, branding: config.invoice, invoice: { date: '2026-11-13' } });
-  assert.deepEqual(d.categories, [{ category: 'Legal', cents: 260000, count: 2 }]);
+  assert.deepEqual(d.categories.map(({ category, cents, count }) => ({ category, cents, count })), [{ category: 'Legal', cents: 260000, count: 2 }]);
   assert.equal(d.totalCents, 260000);
   assert.equal(d.from, 'David Silver - Rekindle');
   assert.equal(d.due, null); // no terms configured
