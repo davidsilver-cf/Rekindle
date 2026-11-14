@@ -53,8 +53,15 @@ async function refreshNow() {
   return refreshing;
 }
 
-async function authHeader({ forceRefresh = false } = {}) {
+// Calls the Campfire app connection was refused (403) and that were done
+// with the API key instead, so Settings can show what the app still can't do.
+const keyFallbacks = new Map(); // path pattern -> { count, last }
+export const fallbacks = () => [...keyFallbacks.entries()].map(([path, v]) => ({ path, ...v }));
+const pattern = (pathname) => pathname.replace(/\/\d+(?=\/|$)/g, '/:id');
+
+async function authHeader({ forceRefresh = false, useKey = false } = {}) {
   await connectionLoaded();
+  if (useKey) return `Token ${apiKey()}`;
   if (conn) {
     const expiring = conn.expires_at && new Date(conn.expires_at).getTime() < Date.now() + 60_000;
     if (forceRefresh || expiring) await refreshNow();
@@ -71,8 +78,9 @@ async function request(path, params = {}, { method = 'GET', body } = {}) {
   }
 
   let refreshed = false;
+  let useKey = false;
   for (let attempt = 1; attempt <= 5; attempt++) {
-    const auth = await authHeader();
+    const auth = await authHeader({ useKey });
     const res = await fetch(url, {
       method,
       headers: {
@@ -93,6 +101,14 @@ async function request(path, params = {}, { method = 'GET', body } = {}) {
       refreshed = true;
       // Another call may already have refreshed it; only refresh a token that's still current.
       if (conn && `${normType(conn.token_type)} ${conn.access_token}` === auth) await authHeader({ forceRefresh: true });
+      continue;
+    }
+    if (res.status === 403 && conn && !useKey && process.env.CAMPFIRE_API_KEY) {
+      // The app isn't allowed this yet; use the API key while it's still set.
+      useKey = true;
+      const key = `${method} ${pattern(url.pathname)}`;
+      keyFallbacks.set(key, { count: (keyFallbacks.get(key)?.count || 0) + 1, last: new Date().toISOString() });
+      console.log(JSON.stringify({ event: 'campfire_app_refused_used_key', call: key }));
       continue;
     }
     if (!res.ok) {
@@ -122,12 +138,29 @@ export async function listBills({ status = 'open', startDate, endDate, entity, q
   return all;
 }
 
+// Tags: Campfire documents /coa/api/tag; try the /v1/ form first (it may be
+// the one app connections are allowed), and remember which one works.
+let tagPath = null;
+async function tagPage(params) {
+  if (tagPath) return request(tagPath, params);
+  try {
+    const page = await request('/coa/api/v1/tag', params);
+    tagPath = '/coa/api/v1/tag';
+    return page;
+  } catch (err) {
+    if (![403, 404, 405].includes(err.status)) throw err;
+    const page = await request('/coa/api/tag', params);
+    tagPath = '/coa/api/tag';
+    return page;
+  }
+}
+
 // Active tags in one tag group (e.g. Deals, Billback Customer), paged.
 export async function listTags(group) {
   const limit = 200;
   const all = [];
   for (let offset = 0; offset < 20_000; offset += limit) {
-    const page = await request('/coa/api/tag', { group, limit, offset });
+    const page = await tagPage({ group, limit, offset });
     const rows = Array.isArray(page) ? page : page.results || [];
     all.push(...rows.filter((t) => !t.is_deleted && t.is_active !== false));
     if (rows.length < limit) break;

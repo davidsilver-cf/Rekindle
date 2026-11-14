@@ -25,7 +25,7 @@ import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage,
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
-import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection } from './campfire.js';
+import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
 import { getStore, StoreError, ShareTakenError } from './store.js';
 
 const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice };
@@ -360,6 +360,7 @@ async function handle(req, res) {
       apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
       scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',
       endpoints,
+      fallbacks: conn ? fallbacks() : [],
       connection: conn && { connectedBy: conn.connected_by, connectedAt: conn.connected_at, expiresAt: conn.expires_at, scope: conn.scope, workspace: conn.workspace, refreshable: Boolean(conn.refresh_token) },
     } }, flash));
   }

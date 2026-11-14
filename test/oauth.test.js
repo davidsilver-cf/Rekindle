@@ -19,7 +19,8 @@ let who = 'david@campfire.ai';
 let tokenN = 0;
 let expiresIn = 3600;
 let rejectToken = null;
-let noIdentity = false; // Campfire sends no ID token (identity scopes not granted) // an access token the API should refuse with 401
+let noIdentity = false;
+let forbidTags = false; // Campfire sends no ID token (identity scopes not granted) // an access token the API should refuse with 401
 const codes = new Map();
 const fake = http.createServer((req, res) => {
   let body = '';
@@ -56,7 +57,11 @@ const fake = http.createServer((req, res) => {
       seen.api.push(req.headers.authorization);
       if (req.headers.authorization === `Bearer ${rejectToken}`) return json(401, { detail: 'token revoked' });
       if (url.pathname === '/coa/api/v1/bill') return json(200, { results: bills });
-      if (url.pathname === '/coa/api/tag') return json(200, { results: [] });
+      if (url.pathname === '/coa/api/v1/tag') return json(404, { detail: 'Not found.' });
+      if (url.pathname === '/coa/api/tag') {
+        if (forbidTags && req.headers.authorization.startsWith('Bearer')) return json(403, { detail: 'You do not have permission to perform this action.' });
+        return json(200, { results: [] });
+      }
       return json(200, {});
     }
     res.statusCode = 404; res.end();
@@ -186,6 +191,21 @@ test('Manage URL: a valid signed cf_ctx signs in; a forged or unsigned one falls
   // Someone Rekindle doesn't allow, even with a valid context, isn't signed in.
   const outsider = await fetch(`${base}/campfire/manage?cf_ctx=${jwt({ ...claims, email: 'x@elsewhere.com' }, 'shh')}`, { redirect: 'manual' });
   assert.equal(cookieOf(outsider), '');
+});
+
+test('a call the app is refused uses the API key while it is set, and Settings lists it', async () => {
+  forbidTags = true;
+  process.env.CAMPFIRE_API_KEY = 'key';
+  try {
+    const cookie = `rekindle_session=${makeSession({ email: 'david@campfire.ai', name: 'D', via: 'campfire' })}`;
+    const before = seen.api.length;
+    assert.equal((await fetch(`${base}/`, { headers: { cookie } })).status, 200);
+    assert.ok(seen.api.slice(before).includes('Token key'));
+    assert.ok(seen.api.slice(before).includes('Bearer at2'));
+    const page = await (await fetch(`${base}/settings`, { headers: { cookie } })).text();
+    assert.match(page, /Still using the API key/);
+    assert.match(page, /GET \/coa\/api\/tag/);
+  } finally { forbidTags = false; delete process.env.CAMPFIRE_API_KEY; }
 });
 
 test('login page offers Sign in with Campfire; health reports the connection', async () => {

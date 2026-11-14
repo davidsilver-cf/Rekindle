@@ -581,7 +581,7 @@ export function settingsPage(ctx, flash = null) {
   if (!st.appConfigured) {
     status = `<div class="banner bad"><b>The Campfire app isn't set up in Rekindle.</b> Add <code>CAMPFIRE_CLIENT_ID</code> and <code>CAMPFIRE_CLIENT_SECRET</code> on Render (Environment), from the app under Settings → Apps in Campfire.</div>`;
   } else if (c) {
-    status = `<div class="banner good"><b>Connected to Campfire</b>${workspaceName(c.workspace) ? ` · ${esc(workspaceName(c.workspace))}` : ''}. Rekindle reads bills and creates invoices with this connection${st.apiKey ? '; the API key on Render is no longer used and can be deleted' : ''}.</div>`;
+    status = `<div class="banner good"><b>Connected to Campfire</b>${workspaceName(c.workspace) ? ` · ${esc(workspaceName(c.workspace))}` : ''}. Rekindle reads bills and creates invoices with this connection${st.apiKey ? (st.fallbacks?.length ? '; some calls still need the API key (below)' : '; once this has worked for a while with nothing listed under "Still using the API key", the API key on Render can be deleted') : ''}.</div>`;
   } else {
     status = `<div class="banner ${st.apiKey ? 'demo' : 'bad'}"><b>Not connected.</b> ${st.apiKey ? 'Rekindle is using the API key on Render for now.' : 'Rekindle is showing demo data.'} Connect to use the Rekindle app in Campfire instead.</div>`;
   }
@@ -608,6 +608,7 @@ ${ep?.error ? row('Endpoints', `<span class="no">${esc(ep.error)}</span>`) : ep 
     body: `${flashHtml}<div class="head"><div><h1>Settings</h1><p class="sub">How Rekindle connects to Campfire.</p></div></div>
 ${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${esc(ctx.loadError)}</div>` : ''}
 <div class="card"><div class="pad"><h2 style="margin:0">Campfire connection</h2>${status}</div>${details}${actions}</div>
+${st.fallbacks?.length ? `<div class="card"><div class="pad"><h2 style="margin:0">Still using the API key</h2><p class="sub" style="margin:0">Campfire refused the app these calls, so Rekindle made them with <code>CAMPFIRE_API_KEY</code>. Give the Rekindle app the matching permission in Campfire (Settings → Apps), reconnect, and keep the API key until this list stays empty.</p></div><div class="scroll"><table><thead><tr><th>Call</th><th class="num">Times</th><th>Last</th></tr></thead><tbody>${st.fallbacks.map((f) => `<tr><td><code>${esc(f.path)}</code></td><td class="num">${f.count}</td><td>${esc(atET(f.last))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
 ${tech}`,
   });
 }
