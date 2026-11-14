@@ -302,4 +302,9 @@ test('inside Campfire: panels on bills and invoices, embedded screens, PDF butto
   // A form posted from another site is refused even with a valid session.
   const evil = await fetch(`${base}/invoices/retag`, { method: 'POST', redirect: 'manual', headers: { cookie: admin(), origin: 'https://evil.example', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'run=1' });
   assert.equal(evil.status, 403);
+  const evil2 = await fetch(`${base}/invoices/retag`, { method: 'POST', redirect: 'manual', headers: { cookie: admin(), 'sec-fetch-site': 'cross-site', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'run=1' });
+  assert.equal(evil2.status, 403);
+  // Rekindle's own forms (same-origin, even with Origin: null) go through.
+  const own = await fetch(`${base}/login`, { method: 'POST', redirect: 'manual', headers: { origin: 'null', 'sec-fetch-site': 'same-origin', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'token=tok' });
+  assert.equal(own.status, 303);
 });

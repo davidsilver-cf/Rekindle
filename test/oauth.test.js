@@ -262,3 +262,13 @@ test("Campfire's context (user and workspace IDs, no email) signs people in on a
   delete process.env.REKINDLE_CAMPFIRE_WORKSPACES;
   process.env.REKINDLE_ADMINS = 'david@campfire.ai';
 });
+
+test('appearance: /theme remembers light or dark, auto clears it, and back must be a Rekindle path', async () => {
+  const r = await fetch(`${base}/theme?set=dark&back=/login`, { redirect: 'manual' });
+  assert.equal(r.headers.get('location'), '/login');
+  const cookie = cookieOf(r);
+  assert.match(cookie, /rekindle_theme=dark/);
+  assert.match(await (await fetch(`${base}/login`, { headers: { cookie } })).text(), /<html lang="en" data-theme="dark"/);
+  assert.match(await (await fetch(`${base}/login`)).text(), /<html lang="en"><head>/);
+  assert.equal((await fetch(`${base}/theme?set=auto&back=//evil.example`, { redirect: 'manual' })).headers.get('location'), '/');
+});

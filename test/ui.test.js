@@ -77,7 +77,7 @@ test('menu shows a red count of deals needing setup, and none when all are set u
     billbackCustomers: [],
   } });
   const page = queuePage({ ...ctx(), config: withNew });
-  assert.match(page, /Deals &amp; allocations<\/span><span class="pill" title="2 deals need setup" style="background:#991B1B;color:#fff">2/);
+  assert.match(page, /Deals &amp; allocations<\/span><span class="pill" title="2 deals need setup" style="background:var\(--bad\);color:var\(--on-accent\)">2/);
   assert.doesNotMatch(queuePage(ctx()), /need(s)? setup"/);
 });
 
@@ -91,4 +91,15 @@ test('invoice product banner: missing vs not a number', () => {
 
 test('pages link the flame favicon', () => {
   assert.match(queuePage(ctx()), /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.svg">/);
+});
+
+test('themes: Campfire colors inside Campfire, light/dark from the choice, else the device', async () => {
+  const { layout } = await import('../src/ui.js');
+  const page = queuePage(ctx());
+  assert.match(page, /html\[data-theme=dark\]\{--ink:#EDEAE6/);
+  assert.match(page, /html\.embedded\[data-theme=dark\]\{[^}]*--accent:#8DB33A/);
+  assert.match(page, /@media \(prefers-color-scheme:dark\)/);
+  assert.match(page, /href="\/theme\?set=dark&amp;back=/);
+  assert.match(queuePage({ ...ctx(), embed: true, theme: 'dark', path: '/?x=1' }), /set=light&amp;back=%2F%3Fx%3D1/);
+  assert.ok(layout);
 });

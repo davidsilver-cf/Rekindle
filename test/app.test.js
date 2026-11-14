@@ -162,7 +162,7 @@ test('a new Deals tag shows as Needs setup; an admin sets it up and its lines bi
     assert.match(queue, /&quot;Project Atlas&quot; needs setup on the Deals screen/);
     let deals = await (await get('/deals', admin)).text();
     assert.match(deals, /1 needs setup/);
-    assert.match(deals, /<b>Project Atlas<\/b><span style="color:#991B1B;font-weight:600">Needs setup · 1 pending line/);
+    assert.match(deals, /<b>Project Atlas<\/b><span style="color:var\(--bad\);font-weight:600">Needs setup · 1 pending line/);
 
     // Non-admins can't set up deals; bad setups are refused with a reason.
     assert.equal((await post('/deals/setup', { deal: '1029001', billingType: 'Fund', customer: '1027953' }, as('pat@campfire.ai'))).status, 403);

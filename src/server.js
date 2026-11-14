@@ -79,9 +79,11 @@ const isEmbedded = (req, url) => req.headers['sec-fetch-dest'] === 'iframe' || u
 // SameSite=None so it works inside Campfire).
 function crossSitePost(req) {
   if (req.method !== 'POST') return false;
-  if (req.headers['sec-fetch-site'] === 'cross-site') return true;
+  // Browsers say where a request came from; trust that first.
+  const site = req.headers['sec-fetch-site'];
+  if (site) return site === 'cross-site';
   const origin = req.headers.origin;
-  if (!origin || origin === 'null') return Boolean(origin);
+  if (!origin || origin === 'null') return false;
   const proto = req.headers['x-forwarded-proto'] || 'http';
   return origin !== `${proto}://${req.headers.host}`;
 }
@@ -106,13 +108,16 @@ function send(res, status, body, type = 'text/plain; charset=utf-8', headers = {
   res.writeHead(status, {
     'Content-Type': type,
     'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'no-referrer',
+    'Referrer-Policy': 'same-origin',
     ...(type.startsWith('text/html') ? { 'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://accounts.google.com; frame-ancestors ${frameAncestors()}` } : {}),
     ...headers,
   });
   res.end(typeof body === 'string' ? body : JSON.stringify(body, null, 2));
 }
-const html = (res, body, status = 200) => send(res, status, body, 'text/html; charset=utf-8');
+// Every page gets the person's light/dark choice on <html> (none = follow the device).
+const html = (res, body, status = 200) => send(res, status, res.rekindleTheme ? String(body).replace('<html lang="en"', `<html lang="en" data-theme="${res.rekindleTheme}"`) : body, 'text/html; charset=utf-8');
+const THEME_COOKIE = 'rekindle_theme';
+const THEMES = ['light', 'dark'];
 const redirect = (res, to, headers = {}) => { res.writeHead(303, { Location: to, ...headers }); res.end(); };
 
 function readBody(req) {
@@ -238,6 +243,19 @@ async function handle(req, res) {
   let user = currentUser(req);
   await connectionLoaded();
   const embed = isEmbedded(req, url);
+  const theme = url.searchParams.get('theme') || cookieValue(req, THEME_COOKIE);
+  if (THEMES.includes(theme)) res.rekindleTheme = theme;
+
+  // Light / Dark / Auto, remembered in a cookie. Harmless to follow as a link.
+  if (req.method === 'GET' && url.pathname === '/theme') {
+    const set = url.searchParams.get('set');
+    const back = url.searchParams.get('back') || '/';
+    const to = /^\/(?!\/)[^\s]*$/.test(back) ? back : '/';
+    const https = req.headers['x-forwarded-proto'] === 'https';
+    const attrs = `HttpOnly; Path=/; ${https ? `SameSite=None; Secure${req.headers['sec-fetch-dest'] === 'iframe' ? '; Partitioned' : ''}` : 'SameSite=Lax'}`;
+    const cookie = THEMES.includes(set) ? `${THEME_COOKIE}=${set}; ${attrs}; Max-Age=31536000` : `${THEME_COOKIE}=; ${attrs}; Max-Age=0`;
+    return redirect(res, to, { 'Set-Cookie': cookie });
+  }
 
   // Server-to-server and token calls carry no cookie; everything else must come from Rekindle's own pages.
   const tokenCall = url.searchParams.has('token') || /^Bearer\s/i.test(req.headers.authorization || '');
@@ -418,7 +436,7 @@ async function handle(req, res) {
     const s = url.searchParams;
     const flash = s.has('connected') ? { ok: true, text: 'Connected to Campfire. Rekindle now reads and writes with this connection.' }
       : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' } : null;
-    return html(res, settingsPage({ ...ctx, embed, settings: {
+    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', settings: {
       appConfigured: oauthConfigured(),
       apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
       scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',
@@ -472,7 +490,7 @@ async function handle(req, res) {
   // ---- Screens and actions need a signed-in user
   if (req.method === 'GET' && SCREENS[url.pathname]) {
     if (!user) return redirect(res, '/login');
-    return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed }, url));
+    return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: url.pathname + url.search }, url));
   }
 
   if (req.method === 'GET' && url.pathname === '/invoices/pdf') {

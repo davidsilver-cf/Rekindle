@@ -9,26 +9,39 @@ const usd = (cents) => fromCents(cents).toLocaleString('en-US', { style: 'curren
 const pct = (n) => `${(Math.round(n * 100) / 100).toFixed(2)}%`;
 
 const TYPE_STYLE = {
-  Deal: 'background:#E8EEF8;color:#1E3A8A',
-  Fund: 'background:#EEE8F6;color:#5B21B6',
-  Allocation: 'background:#FDECE3;color:#9A3412',
-  Expense: 'background:#F1EEE9;color:#3F3B36',
+  Deal: 'background:var(--t-deal-bg);color:var(--t-deal)',
+  Fund: 'background:var(--t-fund-bg);color:var(--t-fund)',
+  Allocation: 'background:var(--accent-tint);color:var(--accent-dark)',
+  Expense: 'background:var(--hover);color:var(--nav-ink)',
 };
 const pill = (text, style) => `<span class="pill" style="${style}">${esc(text)}</span>`;
 const typePill = (t) => (t ? pill(t, TYPE_STYLE[t] || TYPE_STYLE.Expense) : '');
 
+// Colors: Rekindle's own (orange) on its own site, Campfire's (green) when
+// shown inside Campfire; each light or dark. data-theme on <html> is set from
+// the person's choice; without one, the device's light/dark setting decides.
+const PALETTES = {
+  light: '--ink:#1C1B19;--quiet:#5F5B55;--line:#E6E2DC;--soft:#EFECE7;--bg:#F7F5F2;--surface:#fff;--nav-ink:#3F3B36;--hover:#F1EEE9;--field-line:#D6D1C9;--accent:#C2410C;--accent-dark:#9A3412;--accent-tint:#FDECE3;--on-accent:#fff;--good:#166534;--good-tint:#E7F4EC;--warn:#854D0E;--warn-tint:#FEF6E0;--bad:#991B1B;--bad-tint:#FDECEC;--t-deal-bg:#E8EEF8;--t-deal:#1E3A8A;--t-fund-bg:#EEE8F6;--t-fund:#5B21B6;color-scheme:light',
+  dark: '--ink:#EDEAE6;--quiet:#A8A29B;--line:#3A3632;--soft:#2C2A27;--bg:#1A1917;--surface:#23211F;--nav-ink:#D6D1CA;--hover:#2E2B28;--field-line:#4A4540;--accent:#E0662A;--accent-dark:#FDBA8C;--accent-tint:#3B2418;--on-accent:#fff;--good:#7AD39F;--good-tint:#17301F;--warn:#F3C969;--warn-tint:#3A2F12;--bad:#F49A9A;--bad-tint:#3A1C1C;--t-deal-bg:#1C2A45;--t-deal:#A9C1F5;--t-fund-bg:#2A2141;--t-fund:#C9B3F5;color-scheme:dark',
+  campfireLight: '--bg:#F6F7F5;--surface:#fff;--line:#E1E5E1;--soft:#ECEFEB;--hover:#EEF1EC;--accent:#4D6B1F;--accent-dark:#3B5317;--accent-tint:#ECF2E1;--on-accent:#fff',
+  campfireDark: '--ink:#E9EEEA;--quiet:#9FAEA5;--line:#33433A;--soft:#26322C;--bg:#17201B;--surface:#1E2924;--nav-ink:#CFD8D2;--hover:#26332D;--field-line:#3D4E45;--accent:#8DB33A;--accent-dark:#B5D46A;--accent-tint:#2B3A1C;--on-accent:#10170F',
+};
+const THEMES = `:root{${PALETTES.light}}html.embedded{${PALETTES.campfireLight}}
+html[data-theme=dark]{${PALETTES.dark}}html.embedded[data-theme=dark]{${PALETTES.campfireDark}}
+@media (prefers-color-scheme:dark){html:not([data-theme=light]){${PALETTES.dark}}html.embedded:not([data-theme=light]){${PALETTES.campfireDark}}}`;
+
 const CSS = `
-:root{--ink:#1C1B19;--quiet:#5F5B55;--line:#E6E2DC;--soft:#EFECE7;--bg:#F7F5F2;--accent:#C2410C;--accent-dark:#9A3412;--accent-tint:#FDECE3;--good:#166534;--good-tint:#E7F4EC;--warn:#854D0E;--warn-tint:#FEF6E0}
+${THEMES}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--ink);background:var(--bg)}
 a{color:var(--accent)}a:hover{color:var(--accent-dark)}
 .shell{display:flex;flex-wrap:wrap;min-height:100vh}
-nav{flex:1 1 220px;max-width:260px;padding:24px 16px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+nav{flex:1 1 220px;max-width:260px;padding:24px 16px;background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
 nav .brand{display:flex;align-items:center;gap:10px;padding:4px 12px 20px}
 nav .brand b{font-size:17px}nav .brand small{display:block;font-size:12px;color:var(--quiet)}
-nav a.item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;color:#3F3B36;text-decoration:none;font-size:14px;min-height:44px}
-nav a.item:hover{background:#F1EEE9;color:var(--ink)}
+nav a.item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;color:var(--nav-ink);text-decoration:none;font-size:14px;min-height:44px}
+nav a.item:hover{background:var(--hover);color:var(--ink)}
 nav a.on{background:var(--accent-tint);color:var(--accent-dark);font-weight:600}
 nav .foot{margin-top:auto;padding:12px;font-size:12px;color:var(--quiet);display:flex;flex-direction:column;gap:4px}
 main{flex:999 1 560px;min-width:0;padding:32px 40px;display:flex;flex-direction:column;gap:24px}
@@ -37,10 +50,12 @@ h1{margin:0;font-size:26px}h2{margin:0;font-size:16px}
 .sub{margin:6px 0 0;color:var(--quiet);font-size:14px}
 .head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
-.card{background:#fff;border:1px solid var(--line);border-radius:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px}
 .embedded .shell{display:block;min-height:0}.embedded main{padding:16px 20px;gap:16px}
-.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 16px;background:#fff;border-bottom:1px solid var(--line);align-items:center}
-.tabs a{padding:6px 12px;border-radius:8px;color:#3F3B36;text-decoration:none;font-size:13px;min-height:32px;display:inline-flex;align-items:center;gap:6px}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--line);align-items:center}
+.tabs a{padding:6px 12px;border-radius:8px;color:var(--nav-ink);text-decoration:none;font-size:13px;min-height:32px;display:inline-flex;align-items:center;gap:6px}
+.tabs .theme-switch{margin-right:12px}
+.theme-switch a,.tabs .theme-switch a{color:var(--quiet);text-decoration:none;padding:0;min-height:0;display:inline}.theme-switch a:hover{color:var(--ink)}
 .tabs a.on{background:var(--accent-tint);color:var(--accent-dark);font-weight:600}.tabs .spacer{flex:1}.tabs .who{font-size:12px;color:var(--quiet)}
 .panel{padding:12px;display:flex;flex-direction:column;gap:12px;font-size:13px}.panel h2{font-size:14px;margin:0}
 .panel table{font-size:12px}.panel .btn{min-height:32px;padding:0 12px;font-size:13px}
@@ -56,33 +71,33 @@ tfoot td{font-weight:700;border-bottom:none}
 .wrap{white-space:normal;min-width:160px}
 .muted{color:var(--quiet)}.small{font-size:12px}
 .pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:500}
-.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:8px;font-weight:600;font-size:14px;font-family:inherit;cursor:pointer;text-decoration:none;border:1px solid #D6D1C9;background:#fff;color:var(--ink)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:8px;font-weight:600;font-size:14px;font-family:inherit;cursor:pointer;text-decoration:none;border:1px solid var(--field-line);background:var(--surface);color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .btn[disabled]{opacity:.55;cursor:not-allowed}
 .banner{padding:12px 16px;border-radius:10px;font-size:13px}
 .banner.demo{background:var(--warn-tint);color:var(--warn)}
 .banner.good{background:var(--good-tint);color:var(--good)}
-.banner.bad{background:#FDECEC;color:#991B1B}
+.banner.bad{background:var(--bad-tint);color:var(--bad)}
 .bar{height:8px;border-radius:4px;background:var(--accent)}
 .split{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
 .split>.wide{flex:999 1 480px;min-width:0}.split>.side{flex:1 1 280px;max-width:380px}
 .pad{padding:16px 20px;display:flex;flex-direction:column;gap:10px;font-size:13px}
-.ok{color:var(--good)}.no{color:#991B1B}
+.ok{color:var(--good)}.no{color:var(--bad)}
 .filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:14px 16px;border-bottom:1px solid var(--line)}
 .filter{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--quiet);min-width:140px}
 .filter.grow{flex:1 1 220px}
-.filter input,.filter select{min-height:40px;padding:0 10px;border:1px solid #D6D1C9;border-radius:8px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff}
+.filter input,.filter select{min-height:40px;padding:0 10px;border:1px solid var(--field-line);border-radius:8px;font-size:14px;font-family:inherit;color:var(--ink);background:var(--surface)}
 .filter-actions{display:flex;gap:8px}
 .selbar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:10px 16px;font-size:13px;color:var(--quiet);border-bottom:1px solid var(--line)}
 #sel-count{color:var(--accent-dark);font-weight:600}
 td.check,th.check{width:36px;padding-right:0}
 td.check input,th.check input{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
 td.check input:disabled{cursor:not-allowed;opacity:.35}
-a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:#D6D1C9;box-shadow:0 1px 0 #D6D1C9}
+a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:var(--field-line);box-shadow:0 1px 0 var(--field-line)}
 .dealrow{display:block;padding:12px 14px;border-bottom:1px solid var(--soft);text-decoration:none;color:var(--ink)}
 .dealrow.on{background:var(--accent-tint)}
 .inline{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
-.inline input,.inline textarea{min-height:40px;padding:8px 10px;border:1px solid #D6D1C9;border-radius:8px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff}
+.inline input,.inline textarea{min-height:40px;padding:8px 10px;border:1px solid var(--field-line);border-radius:8px;font-size:14px;font-family:inherit;color:var(--ink);background:var(--surface)}
 .inline textarea{min-height:40px;resize:vertical;width:100%}
 .decide{display:flex;flex-direction:column;gap:8px;min-width:240px}
 .decide .row{display:flex;gap:8px;flex-wrap:wrap}
@@ -90,11 +105,17 @@ a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:#D6D
 .btn.sm{min-height:36px;padding:0 12px;font-size:13px}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 table.owners td{padding:6px 8px}
-table.owners select,table.owners input{min-height:36px;padding:0 8px;border:1px solid #D6D1C9;border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:var(--ink)}
+table.owners select,table.owners input{min-height:36px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink)}
 .dealrow b{display:block;font-size:14px}.dealrow span{font-size:12px;color:var(--quiet)}
 `;
 
-const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C2410C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7.5z"></path><path d="M6 21h12"></path></svg>`;
+const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7.5z"></path><path d="M6 21h12"></path></svg>`;
+
+// Light / Dark / Auto links; back = the page you're on.
+export function themeSwitch(current, back = '/') {
+  const opt = (v, label) => `<a href="/theme?set=${v}&amp;back=${encodeURIComponent(back)}"${(current || 'auto') === v ? ' aria-current="true" style="font-weight:700;color:var(--ink)"' : ''}>${label}</a>`;
+  return `<span class="theme-switch small muted" aria-label="Appearance">${opt('light', 'Light')} · ${opt('dark', 'Dark')} · ${opt('auto', 'Auto')}</span>`;
+}
 
 export function layout({ active, title, body, ctx, scripts = [] }) {
   const needSetup = (ctx.config?.deals || []).filter((d) => !d.billingType).length;
@@ -109,7 +130,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
   const nav = items
     .map(([href, key, label, count, alert, title]) => {
       const badge = count == null ? ''
-        : `<span class="pill" title="${esc(title)}" style="${alert ? 'background:#991B1B;color:#fff' : 'background:#fff;color:#3F3B36'}">${count}<span class="sr-only"> ${esc(title)}</span></span>`;
+        : `<span class="pill" title="${esc(title)}" style="${alert ? 'background:var(--bad);color:var(--on-accent)' : 'background:var(--surface);color:var(--nav-ink)'}">${count}<span class="sr-only"> ${esc(title)}</span></span>`;
       return `<a class="item${active === key ? ' on' : ''}" href="${href}"${active === key ? ' aria-current="page"' : ''}><span>${label}</span>${badge}</a>`;
     })
     .join('');
@@ -118,15 +139,15 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
     : '';
   if (ctx.embed) {
     // Inside Campfire: Campfire has the main menu, so a slim tab bar instead of the sidebar.
-    const tabs = items.map(([href, key, label, count, alert, title]) => `<a href="${href}"${active === key ? ' class="on" aria-current="page"' : ''}>${label}${count == null ? '' : `<span class="pill" title="${esc(title)}" style="${alert ? 'background:#991B1B;color:#fff' : 'background:#F1EEE9;color:#3F3B36'}">${count}</span>`}</a>`).join('');
+    const tabs = items.map(([href, key, label, count, alert, title]) => `<a href="${href}"${active === key ? ' class="on" aria-current="page"' : ''}>${label}${count == null ? '' : `<span class="pill" title="${esc(title)}" style="${alert ? 'background:var(--bad);color:var(--on-accent)' : 'background:var(--hover);color:var(--nav-ink)'}">${count}</span>`}</a>`).join('');
     return `<!doctype html><html lang="en" class="embedded"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell"><div class="tabs" role="navigation" aria-label="Rekindle">${tabs}<span class="spacer"></span><span class="who">${ctx.demo ? 'Demo data · ' : ''}${ctx.write ? '' : 'Writing off · '}${esc(ctx.user?.email || '')}</span></div>
+<title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell"><div class="tabs" role="navigation" aria-label="Rekindle">${tabs}<span class="spacer"></span>${themeSwitch(ctx.theme, ctx.path)}<span class="who">${ctx.demo ? 'Demo data · ' : ''}${ctx.write ? '' : 'Writing off · '}${esc(ctx.user?.email || '')}</span></div>
 <main>${source}${body}</main></div>${scripts.map((src) => `<script src="${src}" defer></script>`).join('')}</body></html>`;
   }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell">
 <nav aria-label="Rekindle"><div class="brand">${FLAME}<div><b>Rekindle</b><small>Billback for Campfire</small></div></div>${nav}
-<div class="foot">${ctx.user ? `<span class="who"><b style="color:var(--ink)">${esc(ctx.user.name || ctx.user.email)}</b><span>${esc(ctx.user.email)}${ctx.admin ? ' · admin' : ''}</span></span><form method="post" action="/logout"><button class="btn sm" type="submit">Sign out</button></form>` : ''}<span>${ctx.demo ? 'Demo mode' : `Live from Campfire${ctx.via ? ` · ${esc(ctx.via)}` : ''}`}</span><span>Approvals saved: ${ctx.storeKind === 'postgres' ? 'database' : 'not saved (no database)'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span></div></nav>
+<div class="foot">${ctx.user ? `<span class="who"><b style="color:var(--ink)">${esc(ctx.user.name || ctx.user.email)}</b><span>${esc(ctx.user.email)}${ctx.admin ? ' · admin' : ''}</span></span><form method="post" action="/logout"><button class="btn sm" type="submit">Sign out</button></form>` : ''}<span>${ctx.demo ? 'Demo mode' : `Live from Campfire${ctx.via ? ` · ${esc(ctx.via)}` : ''}`}</span><span>Approvals saved: ${ctx.storeKind === 'postgres' ? 'database' : 'not saved (no database)'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span>${themeSwitch(ctx.theme, ctx.path)}</div></nav>
 <main>${source}${body}</main></div>${scripts.map((src) => `<script src="${src}" defer></script>`).join('')}</body></html>`;
 }
 
@@ -155,8 +176,8 @@ const STATE_STYLE = {
   to_stamp: 'background:var(--warn-tint);color:var(--warn)',
   stamped: 'background:var(--good-tint);color:var(--good)',
   split: 'background:var(--accent-tint);color:var(--accent-dark)',
-  expense: 'background:#F1EEE9;color:#3F3B36',
-  exception: 'background:#FDECEC;color:#991B1B',
+  expense: 'background:var(--hover);color:var(--nav-ink)',
+  exception: 'background:var(--bad-tint);color:var(--bad)',
 };
 
 // Filters come from the query string: q, bill, deal, type, state.
@@ -241,7 +262,7 @@ ${select('bill', 'Bill', filters.bill, uniq(plan.lines.map((l) => l.billNumber))
 <a class="card kpi link" href="/"><span>Pending lines</span><strong>${usd(plan.totals.pendingCents)}</strong><span>${plan.lines.length} lines</span></a>
 <a class="card kpi link" href="/?state=to_stamp"><span>To stamp</span><strong>${toStamp.length}</strong><span>of ${plan.lines.length} lines · ${alloc} split at invoicing</span></a>
 <a class="card kpi link" href="/approvals"><span>Billback customers</span><strong>${plan.customers.length}</strong><span>after splits</span></a>
-<a class="card kpi link" href="/?state=exception"><span>Exceptions</span><strong style="color:${exceptions.length ? '#991B1B' : 'var(--good)'}">${exceptions.length}</strong><span>${usd(plan.totals.exceptionCents)}</span></a>
+<a class="card kpi link" href="/?state=exception"><span>Exceptions</span><strong style="color:${exceptions.length ? 'var(--bad)' : 'var(--good)'}">${exceptions.length}</strong><span>${usd(plan.totals.exceptionCents)}</span></a>
 </div>
 <div class="card">${filterBar}
 <div class="selbar"><span>Showing <b>${shown.length}</b> of ${plan.lines.length} lines · ${usd(shownCents)}</span>${canStamp ? '<span id="sel-count" aria-live="polite"></span>' : ''}</div>
@@ -325,7 +346,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
         : d.billingType === 'Allocation'
           ? `Allocation · ${config.allocations.filter((a) => a.dealsTagId === d.dealsTagId).length} owners`
           : d.billingType === 'Expense' ? 'Expense · not billed back' : `${d.billingType} · bills ${d.customer?.name ?? '—'}`;
-      return `<a class="dealrow${d === deal ? ' on' : ''}" href="/deals?deal=${encodeURIComponent(d.dealsTag)}"${d === deal ? ' aria-current="true"' : ''}><b>${esc(d.dealsTag)}</b><span${!d.billingType ? ' style="color:#991B1B;font-weight:600"' : ''}>${esc(summary)}${n ? ` · ${n} pending line${n === 1 ? '' : 's'}` : ''}</span></a>`;
+      return `<a class="dealrow${d === deal ? ' on' : ''}" href="/deals?deal=${encodeURIComponent(d.dealsTag)}"${d === deal ? ' aria-current="true"' : ''}><b>${esc(d.dealsTag)}</b><span${!d.billingType ? ' style="color:var(--bad);font-weight:600"' : ''}>${esc(summary)}${n ? ` · ${n} pending line${n === 1 ? '' : 's'}` : ''}</span></a>`;
     })
     .join('');
 
@@ -338,7 +359,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
 
   let summary = '';
   if (deal.billingType === 'Allocation') {
-    summary = `<div class="card"><div class="cardhead"><div style="display:flex;gap:10px;align-items:center"><h2>Owners</h2>${Math.abs(total - 100) < 1e-9 ? pill('Active total 100% · OK', 'background:var(--good-tint);color:var(--good)') : pill(`Active total ${total}% · fix`, 'background:#FDECEC;color:#991B1B')}</div></div>
+    summary = `<div class="card"><div class="cardhead"><div style="display:flex;gap:10px;align-items:center"><h2>Owners</h2>${Math.abs(total - 100) < 1e-9 ? pill('Active total 100% · OK', 'background:var(--good-tint);color:var(--good)') : pill(`Active total ${total}% · fix`, 'background:var(--bad-tint);color:var(--bad)')}</div></div>
 <div class="scroll"><table><thead><tr><th>Billback customer</th><th class="num">Share</th><th>Effective from</th><th>Effective to</th></tr></thead><tbody>${ownerRows || '<tr><td colspan="4" class="muted">No owners yet.</td></tr>'}</tbody></table></div>
 <p class="sub" style="padding:0 16px 14px">Bills use the split in force on their bill date. Leftover cents go to the largest share.</p></div>`;
   } else if (deal.billingType === 'Deal' || deal.billingType === 'Fund') {
@@ -353,12 +374,12 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
   return layout({
     active: 'deals', title: 'Deals & allocations', ctx, scripts: ['/static/deals.js'],
     body: `${flashHtml}<div class="head"><div><h1>Deals &amp; allocations</h1><p class="sub">Every Deals tag in ${ctx.demo ? 'the demo data' : 'Campfire'}. Its billing type decides who gets invoiced.</p></div>
-${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setup`, 'background:#FDECEC;color:#991B1B;font-size:13px;padding:6px 12px') : pill('All deals set up', 'background:var(--good-tint);color:var(--good);font-size:13px;padding:6px 12px')}</div>
+${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setup`, 'background:var(--bad-tint);color:var(--bad);font-size:13px;padding:6px 12px') : pill('All deals set up', 'background:var(--good-tint);color:var(--good);font-size:13px;padding:6px 12px')}</div>
 <div class="split"><div class="card side" style="overflow:hidden"><div class="cardhead"><span class="small muted"><b>${deals.length} deals</b></span></div>${list}</div>
 <div class="wide" style="display:flex;flex-direction:column;gap:16px">
 <div class="card pad" style="flex-direction:row;flex-wrap:wrap;gap:32px">
 <div><span class="small muted">Deal</span><div style="font-size:20px;font-weight:700">${esc(deal.dealsTag)}</div></div>
-<div><span class="small muted">Billing type</span><div>${deal.billingType ? typePill(deal.billingType) : pill('Needs setup', 'background:#FDECEC;color:#991B1B')}</div></div>
+<div><span class="small muted">Billing type</span><div>${deal.billingType ? typePill(deal.billingType) : pill('Needs setup', 'background:var(--bad-tint);color:var(--bad)')}</div></div>
 <div><span class="small muted">Setup</span><div class="small">${esc(SETUP_SOURCE[deal.source] || '')}</div></div>
 <div><span class="small muted">Campfire Deals tag</span><div class="small">ID ${esc(deal.dealsTagId)}</div></div></div>
 ${summary}${ctx.admin ? setupForm(ctx, deal, owners, draft) : ''}${approverCard(ctx, deal)}</div></div>`,
@@ -380,7 +401,7 @@ function checks(ctx) {
 const APPROVAL = {
   waiting: ['Waiting', 'background:var(--warn-tint);color:var(--warn)'],
   approved: ['Approved', 'background:var(--good-tint);color:var(--good)'],
-  sent_back: ['Sent back', 'background:#FDECEC;color:#991B1B'],
+  sent_back: ['Sent back', 'background:var(--bad-tint);color:var(--bad)'],
   changed: ['Changed since approval', 'background:var(--warn-tint);color:var(--warn)'],
 };
 const when = (d) => new Date(d).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }) + ' ET';
@@ -396,7 +417,7 @@ function decisionCell(ctx, g) {
     parts.push(`<form class="decide" method="post" action="/approvals/decide">
 <input type="hidden" name="deal" value="${esc(g.deal.dealsTagId)}"><input type="hidden" name="fingerprint" value="${esc(g.fingerprint)}">
 <label class="sr" for="note-${esc(g.deal.dealsTagId)}" style="font-size:12px;color:var(--quiet)">Note (optional)</label>
-<textarea id="note-${esc(g.deal.dealsTagId)}" name="note" rows="1" maxlength="500" style="min-height:36px;padding:8px 10px;border:1px solid #D6D1C9;border-radius:8px;font:inherit;font-size:13px"></textarea>
+<textarea id="note-${esc(g.deal.dealsTagId)}" name="note" rows="1" maxlength="500" style="min-height:36px;padding:8px 10px;border:1px solid var(--field-line);border-radius:8px;font:inherit;font-size:13px"></textarea>
 <div class="row"><button class="btn primary sm" type="submit" name="decision" value="approved">Approve ${usd(g.cents)}</button><button class="btn sm" type="submit" name="decision" value="sent_back">Send back</button></div></form>`);
   } else if (!g.canDecide && g.status !== 'approved') {
     parts.push(`<span class="small muted">Waiting on ${esc(g.approver || 'an admin')}</span>`);
@@ -454,8 +475,8 @@ const RUN_STATUS = {
   created: ['Created · PDF not attached', 'background:var(--warn-tint);color:var(--warn)'],
   pdf_attached: ['Created · lines not marked', 'background:var(--warn-tint);color:var(--warn)'],
   complete: ['Complete', 'background:var(--good-tint);color:var(--good)'],
-  failed: ['Not created', 'background:#FDECEC;color:#991B1B'],
-  unknown: ['Check Campfire', 'background:#FDECEC;color:#991B1B'],
+  failed: ['Not created', 'background:var(--bad-tint);color:var(--bad)'],
+  unknown: ['Check Campfire', 'background:var(--bad-tint);color:var(--bad)'],
 };
 
 function historyTable(ctx) {
@@ -500,7 +521,7 @@ export function invoicesPage(ctx, selected, flash = null) {
       const linked = Boolean(c.customer.customerId);
       let status;
       if (!r.ready) status = `${pill('Waiting for approval', 'background:var(--warn-tint);color:var(--warn)')}<div class="small muted" style="white-space:normal">${esc(r.waitingOn.join(', '))}</div>`;
-      else if (!linked) status = `${pill('Not linked to a Campfire customer', 'background:#FDECEC;color:#991B1B')}`;
+      else if (!linked) status = `${pill('Not linked to a Campfire customer', 'background:var(--bad-tint);color:var(--bad)')}`;
       else status = pill('Ready', 'background:var(--good-tint);color:var(--good)');
       const ok = r.ready && linked;
       const box = canCreate && ok
@@ -577,7 +598,7 @@ export function loginPage(error, { google = false, campfire = false, token = tru
 <body><div class="panel" style="max-width:420px">${error ? `<div class="banner bad">${esc(error)}</div>` : ''}<div style="display:flex;align-items:center;gap:8px">${FLAME}<b>Rekindle</b></div>
 <p class="sub" style="margin:0">Campfire didn't sign you in to Rekindle automatically.</p>
 ${token ? `<form method="post" action="/login" style="display:flex;flex-direction:column;gap:8px"><label for="token" class="small muted">Access token (admins)</label>
-<input id="token" name="token" type="password" autocomplete="current-password" required style="min-height:36px;padding:0 10px;border:1px solid #D6D1C9;border-radius:8px;font:inherit">
+<input id="token" name="token" type="password" autocomplete="current-password" required style="min-height:36px;padding:0 10px;border:1px solid var(--field-line);border-radius:8px;font:inherit">
 <button class="btn primary" type="submit">Sign in with token</button></form>` : ''}
 <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="/login" target="_blank" rel="noopener">Sign in in a new tab</a><a class="btn" href="">Reload</a></div>
 <p class="small muted" style="margin:0">After signing in in a new tab, press Reload. If it still asks, your browser is blocking Rekindle's sign-in inside Campfire; use the token here instead.</p></div></body></html>`;
@@ -589,7 +610,7 @@ ${campfire ? '<a class="btn primary" href="/auth/campfire">Sign in with Campfire
 ${google ? `<a class="btn${campfire ? '' : ' primary'}" href="/auth/google">Sign in with Google</a>` : ''}
 ${(google || campfire) && token ? '<p class="sub" style="margin:0;text-align:center">or, for admins</p>' : ''}
 ${token ? `<form method="post" action="/login" style="display:flex;flex-direction:column;gap:10px"><label for="token" class="small muted">Access token</label>
-<input id="token" name="token" type="password" autocomplete="current-password" required style="min-height:44px;padding:0 12px;border:1px solid #D6D1C9;border-radius:8px;font:inherit">
+<input id="token" name="token" type="password" autocomplete="current-password" required style="min-height:44px;padding:0 12px;border:1px solid var(--field-line);border-radius:8px;font:inherit">
 <button class="btn${google || campfire ? '' : ' primary'}" type="submit">Sign in with token</button></form>
 <p class="sub" style="margin:0">The token is <code>REKINDLE_ADMIN_TOKEN</code> in the Render service's Environment tab.</p>` : ''}</div></main></body></html>`;
 }
