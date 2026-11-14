@@ -22,14 +22,14 @@ This guide is for the **Campfire implementer** setting Rekindle up for a new pri
 
 Every reimbursable expense moves through four stages, and its **Billback Status** tag in Campfire shows where it is: Pending, then Allocated Pending Invoice for a split line part-way invoiced, then Billed.
 
-![Every line is stamped, allocated and reviewed for approval, then invoiced](images/billback-flow.png)
+![Every line is stamped, allocated and approved, then invoiced](images/billback-flow.png)
 
 A deal sent back goes to AP to fix the bill, then returns for approval; Expense lines leave the flow at allocation.
 
 1. **Stamp.** A bill line on 13190 with status Pending is read from its **Deals** tag. Rekindle fills a blank **Billing Type** and adds the **Billback Customer** tag from the deal's setup. Anything AP set by hand is left as entered. Stamping runs on every bill save (webhook) or from the Billback Queue.
 2. **Allocate.** Deal and Fund lines go 100% to one billback customer. Allocation lines split across the deal's owners by their percentages on the bill date. Amounts are worked in cents and any leftover cent goes to the largest share, so a split always adds back to the line. Expense lines are not billed back.
-3. **Approve.** Each deal has one approver, who approves or sends back that deal's lines. If a line or amount changes after approval, the deal shows Changed since approval and needs approving again. Approval is advice, not a gate: it shows on the Invoices screen, but the team decides when lines are charged.
-4. **Invoice.** An admin creates each billback customer's invoice when the team is ready; customers whose deals aren't all approved are flagged, with the waiting deals named, but not blocked. Rekindle creates the invoice in Campfire, attaches the PDF, copies department and tags onto each invoice line, and marks the source lines Billed.
+3. **Approve.** Each deal has one approver, who approves or sends back that deal's lines. If a line or amount changes after approval, the deal shows Changed since approval and needs approving again. Only approved deals' lines are invoiced; the rest wait.
+4. **Invoice.** An admin creates each billback customer's invoice from the lines of its **approved** deals. Lines from deals not yet approved are shown as pending and stay for a later invoice. Rekindle creates the invoice in Campfire, attaches the PDF, copies department and tags onto each invoice line, and marks the source lines Billed.
 
 | Billing type | Who is invoiced | Typical use |
 | --- | --- | --- |
@@ -184,7 +184,7 @@ Run one real bill end to end with writing switched on before handing over; it ca
 
 - [ ] Billback Queue shows the lines, with no exceptions
 - [ ] Set `REKINDLE_WRITE=true` in Render; **Stamp** fills Billing Type and Billback Customer on the bill; a line set by hand is untouched
-- [ ] Approvals: each deal's approver approves; Invoices shows the customers as **Approved · ready** (an unapproved deal shows **Not all deals approved** with a link to it, but can still be invoiced)
+- [ ] Approvals: each deal's approver approves; Invoices shows the customers as **Approved · ready** (a customer with some deals not yet approved shows **Approved lines ready** and the amount waiting, linked to those deals)
 - [ ] Create one invoice; it appears in Campfire with the PDF attached and one line per source line
 - [ ] Invoice lines carry department, Deals, Recharge Category, Class, Billback Customer and Billback Status = Billed
 - [ ] Source bill lines show Billed (a split line shows Allocated Pending Invoice until every owner is invoiced)
@@ -202,14 +202,14 @@ Run one real bill end to end with writing switched on before handing over; it ca
 
 ## Day-to-day user guide
 
-The finance team's routine is: clear exceptions on the Billback Queue, get deals approved, then create invoices. Approval doesn't block invoicing; the Invoices screen shows which deals aren't approved so the team can decide. Rekindle is under **Rekindle** in Campfire's left menu, or at its own address.
+The finance team's routine is: clear exceptions on the Billback Queue, get deals approved, then create invoices. Invoices carry only approved deals' lines; anything pending approval waits for a later invoice. Rekindle is under **Rekindle** in Campfire's left menu, or at its own address.
 
 | Screen | What it shows | What you do there |
 | --- | --- | --- |
 | Billback Queue | Every Pending line on 13190: deal, billing type, who it bills, status | Fix exceptions; select lines and **Stamp** any the webhook missed; **Review for approval** |
 | Deals & Allocations | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; change owners and %; set approvers (admins) |
 | Approvals | The run grouped by deal, with each deal's total and status | Approvers **Approve** or **Send back** with a note; click a line count to see the lines |
-| Invoices | What each billback customer owes, and its approval status (**Approved · ready**, or **Not all deals approved** with each waiting deal linking to Approvals) | Filter by **Billing group** to invoice one group's deals at a time; download a draft PDF; tick customers, set the **Invoice date** (today by default; can be backdated) and **Create selected**; Invoice history, Retry, Re-apply tags |
+| Invoices | What each billback customer owes, and its approval status: **Approved · ready**, **Approved lines ready** (some deals still pending; the amount waiting is shown and each deal links to Approvals) or **Waiting for approval** (nothing approved yet, can't be invoiced). Click a customer for the **preview**: every line, with lines from unapproved deals marked **Pending approval**; **Total due** counts only approved lines, and **Amount pending approval** shows the rest | Filter by **Billing group** to invoice one group's deals at a time; download a draft PDF; tick customers, set the **Invoice date** (today by default; can be backdated) and **Create selected**; Invoice history, Retry, Re-apply tags |
 | Reclass | Expense lines waiting to move off 13190, and Reclass history | Tick lines, pick the JE date, **Reclass selected**, confirm; Retry or resolve a run that didn't finish |
 | Settings | The Campfire connection, admins, reclass accounts, people linked from Campfire | Connect or disconnect; add or remove admins; unlink people (admins) |
 
@@ -222,7 +222,7 @@ Inside Campfire's own records:
 
 1. Billback Queue: check Exceptions is 0. A deal tag that **needs setup** links straight to its setup.
 2. Click **Review for approval**; each approver approves their deals.
-3. Invoices: create invoices for the customers you're ready to bill (the confirmation page warns if any include deals not yet approved) and check the totals against the queue. To invoice one Billing group at a time (for example Fund deals separately from Deal deals), pick it in the **Billing group** filter first: amounts and invoices then include only that group's deals, and the rest wait for their own invoices. Set the **Invoice date** first if they should be dated earlier (for example month-end); the due date follows the terms from that date, and the confirmation page flags a backdated date so you can check the period isn't locked.
+3. Invoices: create invoices for the customers you're ready to bill (each invoice carries only approved deals' lines; the confirmation page lists what's left off) and check the totals against the queue. To invoice one Billing group at a time (for example Fund deals separately from Deal deals), pick it in the **Billing group** filter first: amounts and invoices then include only that group's deals, and the rest wait for their own invoices. Set the **Invoice date** first if they should be dated earlier (for example month-end); the due date follows the terms from that date, and the confirmation page flags a backdated date so you can check the period isn't locked.
 4. Reclass: post the month's Expense lines (date it month-end if you close that way).
 5. Check Invoice history and Reclass history are all **Complete**.
 
