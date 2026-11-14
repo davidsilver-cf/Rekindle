@@ -148,7 +148,7 @@ const STATE_STYLE = {
 // Filters come from the query string: q, bill, deal, type, state.
 export function readFilters(params) {
   const get = (k) => (params.get(k) || '').trim().slice(0, 200);
-  return { q: get('q'), bill: get('bill'), deal: get('deal'), type: get('type'), state: get('state') };
+  return { q: get('q'), bill: get('bill'), deal: get('deal'), type: get('type'), state: get('state'), review: get('review') };
 }
 
 export function filterLines(lines, f) {
@@ -168,8 +168,22 @@ const select = (name, label, current, options) =>
 
 const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort();
 
-export function queuePage(ctx, flash, filters = readFilters(new URLSearchParams())) {
+function reviewBanner(ctx, g) {
+  const [label, style] = APPROVAL[g.status];
+  const held = ctx.plan.lines.filter((l) => l.dealsTag === g.deal.dealsTag && (l.exception || l.billingType === 'Expense')).length;
+  return `<div class="card pad review" style="gap:12px;border-color:var(--accent)">
+<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-start">
+<div><span class="small muted">Reviewing for approval</span><h2 style="font-size:18px;margin-top:4px">${esc(g.deal.dealsTag)} · ${usd(g.cents)}</h2>
+<p class="sub" style="margin:4px 0 0">${g.lines.length} line${g.lines.length === 1 ? '' : 's'} in this approval${held ? ` · ${held} held back (exception or expense) and not included` : ''} · Approver: ${esc(g.approver || 'an admin')}</p></div>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${pill(label, style)}<a class="btn sm" href="/approvals#deal-${esc(g.deal.dealsTagId)}">Back to approvals</a></div></div>
+${g.status === 'approved' ? '' : decisionCell(ctx, g)}</div>`;
+}
+
+export function queuePage(ctx, flash, requested = readFilters(new URLSearchParams())) {
   const { plan } = ctx;
+  // Drill-through from Approvals: show exactly the lines in that deal's approval.
+  const review = requested.review ? (ctx.groups || []).find((g) => String(g.deal.dealsTagId) === requested.review) : null;
+  const filters = review ? { ...requested, deal: review.deal.dealsTag, review: '' } : { ...requested, review: '' };
   const exceptions = plan.lines.filter((l) => l.exception);
   const toStamp = plan.lines.filter((l) => lineState(l) === 'to_stamp');
   const alloc = plan.lines.filter((l) => lineState(l) === 'split').length;
@@ -207,7 +221,7 @@ ${select('bill', 'Bill', filters.bill, uniq(plan.lines.map((l) => l.billNumber))
 
   return layout({
     active: 'queue', title: 'Billback queue', ctx, scripts: ['/static/queue.js'],
-    body: `${flashHtml}<div class="head"><div><h1>Billback queue</h1><p class="sub">Pending lines on ${esc(ctx.config.unbilledAccountNumber)} Unbilled Receivable, stamped from each line's Deals tag.</p></div>
+    body: `${flashHtml}${review ? reviewBanner(ctx, review) : ''}<div class="head"><div><h1>Billback queue</h1><p class="sub">Pending lines on ${esc(ctx.config.unbilledAccountNumber)} Unbilled Receivable, stamped from each line's Deals tag.</p></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${stampButtons}<a class="btn primary" href="/approvals">Review for approval</a></div></div>
 <div class="grid4">
 <a class="card kpi link" href="/"><span>Pending lines</span><strong>${usd(plan.totals.pendingCents)}</strong><span>${plan.lines.length} lines</span></a>
@@ -387,7 +401,7 @@ export function approvalsPage(ctx, flash) {
   const dealRows = groups
     .map((g) => {
       const [label, style] = APPROVAL[g.status];
-      return `<tr><td><a href="/deals?deal=${encodeURIComponent(g.deal.dealsTag)}"><b>${esc(g.deal.dealsTag)}</b></a><div class="small muted">${g.lines.length} line${g.lines.length === 1 ? '' : 's'} · ${esc(g.deal.billingType)}</div></td>
+      return `<tr id="deal-${esc(g.deal.dealsTagId)}"><td><a href="/deals?deal=${encodeURIComponent(g.deal.dealsTag)}" title="Deal setup"><b>${esc(g.deal.dealsTag)}</b></a><div class="small muted"><a href="/?review=${esc(g.deal.dealsTagId)}" title="See the lines in this approval">${g.lines.length} line${g.lines.length === 1 ? '' : 's'}</a> · ${esc(g.deal.billingType)}</div></td>
 <td class="wrap">${g.approver ? esc(g.approver) : '<span class="muted">Admin (no approver set)</span>'}</td>
 <td class="num">${usd(g.cents)}</td><td>${pill(label, style)}</td><td style="white-space:normal">${decisionCell(ctx, g)}</td></tr>`;
     })

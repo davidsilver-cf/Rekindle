@@ -209,3 +209,20 @@ test('a bad DATABASE_URL gives a clear message, and /health says why', async () 
   }
   assert.ok(await getStore());
 });
+
+test('approvals drill through to exactly the lines being approved', async () => {
+  const admin = as('david@campfire.ai');
+  const appr = await (await get('/approvals', admin)).text();
+  // Deal name → deal setup; line count → the lines in the approval.
+  assert.match(appr, /<a href="\/deals\?deal=Fund%20II" title="Deal setup"><b>Fund II<\/b><\/a>/);
+  assert.match(appr, /<a href="\/\?review=1027965" title="See the lines in this approval">1 line<\/a>/);
+  const page = await (await get('/?review=1027965', admin)).text();
+  assert.match(page, /Reviewing for approval/);
+  assert.match(page, /Fund II · \$12,000\.00/);
+  assert.match(page, /Showing <b>1<\/b> of \d+ lines · \$12,000\.00/);
+  assert.match(page, /href="\/approvals#deal-1027965">Back to approvals/);
+  // The approval row is anchored so "Back" lands on it.
+  assert.match(appr, /<tr id="deal-1027965">/);
+  // An unknown deal just shows the normal queue.
+  assert.doesNotMatch(await (await get('/?review=999', admin)).text(), /Reviewing for approval/);
+});
