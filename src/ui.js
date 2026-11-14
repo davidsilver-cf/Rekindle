@@ -392,7 +392,7 @@ ${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setu
 <div><span class="small muted">Billing type</span><div>${deal.billingType ? typePill(deal.billingType) : pill('Needs setup', 'background:var(--bad-tint);color:var(--bad)')}</div></div>
 <div><span class="small muted">Setup</span><div class="small">${esc(SETUP_SOURCE[deal.source] || '')}</div></div>
 <div><span class="small muted">Campfire Deals tag</span><div class="small">ID ${esc(deal.dealsTagId)}</div></div></div>
-${summary}${ctx.admin ? setupForm(ctx, deal, owners, draft) : ''}${approverCard(ctx, deal)}</div></div>`,
+${summary}${ctx.admin ? setupForm(ctx, deal, owners, draft) : `<div class="banner demo">Only Rekindle admins can change a deal's setup. You're signed in as <b>${esc(ctx.user?.email || '')}</b>, which isn't in <code>REKINDLE_ADMINS</code>.</div>`}${approverCard(ctx, deal)}</div></div>`,
   });
 }
 
