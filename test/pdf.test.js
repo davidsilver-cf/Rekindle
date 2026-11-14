@@ -34,7 +34,7 @@ test('PDF is well-formed and shows the right amounts', () => {
   const xref = Number(s.match(/startxref\n(\d+)/)[1]);
   assert.equal(s.slice(xref, xref + 4), 'xref');
   const text = pageText(buf).join('\n');
-  for (const t of ['INVOICE', 'Fund II Employees Only', '$2,600.00', '$2,000.00', '$600.00', '5%', 'DRAFT', 'ABC_261106', 'ABC Law Firm', 'Page 1 of 1']) {
+  for (const t of ['INVOICE', 'Fund II Employees Only', '$2,600.00', '$2,000.00', '$600.00', '5%', 'DRAFT', 'ABC_261106', 'ABC Law Firm', 'Page 1 of 2', 'Fund II total', 'Fund II - Employees Only total']) {
     assert.ok(text.includes(t), t);
   }
 });
@@ -76,7 +76,46 @@ test('multi-bill, multi-deal, multi-category scenario ties out to the cent', () 
   assert.equal(d.categories.reduce((s, c) => s + c.cents, 0), d.totalCents);
   // The PDF shows each category's line, its subtotal, and the deal behind each source line.
   const text = pageText(buildInvoicePdf({ customer: emp, plan: mp, branding: {}, invoice: { date: '2026-11-13' } })).join('\n');
-  for (const t of ['Legal subtotal', '$2,924.16', 'Consulting subtotal', '$4,062.50', 'Fund II · 5% allocation', 'Fund II - Employees Only · direct', 'Summit Advisory LLC', 'American Express', '$7,575.49']) {
+  // Two deals feed this invoice: Fund II (5% shares) and its own deal (direct).
+  assert.deepEqual(d.deals.map((g) => [g.deal, g.cents]), [['Fund II', 207000], ['Fund II - Employees Only', 550549]]);
+  for (const t of ['Fund II total', '$2,070.00', 'Fund II - Employees Only total', '$5,505.49', 'Legal subtotal', '$924.16', '5% allocation', 'direct', 'Summit Advisory LLC', 'American Express', '$7,575.49']) {
     assert.ok(text.includes(t), t);
   }
+});
+
+test('diligence scenario: several deals billed to one fund, grouped by deal on the invoice', () => {
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/diligence.json', import.meta.url), 'utf8'));
+  const cfg = { ...config, deals: [...config.deals, ...fx.deals] };
+  const dp = planBills(fx.bills, cfg);
+  assert.equal(dp.totals.ties, true);
+  assert.equal(dp.lines.filter((l) => l.exception).length, 0);
+  // Deal XYZ's line on the shared Amex bill stays off Fund I's invoice.
+  assert.deepEqual(Object.fromEntries(dp.customers.map((c) => [c.customer.name, c.cents])), { 'Fund I': 7557296, 'Deal XYZ': 22010 });
+  // The Cedar line with no Billing Type gets "Fund" from its deal's setup.
+  assert.ok(dp.lines.find((l) => l.lineId === 9500103).stamps.some((s) => s.value === 'Fund'));
+
+  const f1 = dp.customers.find((c) => c.customer.name === 'Fund I');
+  const d = invoiceData({ customer: f1, plan: dp, branding: {}, invoice: { date: '2026-11-13' } });
+  assert.equal(d.multiDeal, true);
+  assert.deepEqual(d.deals.map((g) => [g.deal, g.cents]), [
+    ['Fund I', 221000], ['Project Atlas', 4139693], ['Project Beacon', 2735468], ['Project Cedar', 461135],
+  ]);
+  for (const g of d.deals) assert.equal(g.categories.reduce((s, c) => s + c.cents, 0), g.cents, g.deal);
+  assert.equal(d.deals.reduce((s, g) => s + g.cents, 0), d.totalCents);
+
+  const pages = pageText(buildInvoicePdf({ customer: f1, plan: dp, branding: {}, invoice: { date: '2026-11-13' } }));
+  const text = pages.join('\n');
+  for (const t of ['Deal and category', 'Project Atlas total', '$41,396.93', 'Project Beacon total', '$27,354.68', 'Project Cedar total', '$4,611.35', 'Fund I total', 'Total due', '$75,572.96', '13 lines · 4 deals · 7 categories']) {
+    assert.ok(text.includes(t), t);
+  }
+  // Total due is never alone on a page: it shares a page with at least one invoice line.
+  const totalPage = pages.find((t) => t.includes('Total due'));
+  assert.match(totalPage, /reimbursable expenses/);
+});
+
+test('single-deal invoices keep the simple layout', () => {
+  const fund1Only = plan.customers.find((c) => c.customer.name === 'Fund I');
+  const d = invoiceData({ customer: fund1Only, plan, branding: {}, invoice: {} });
+  assert.equal(d.multiDeal, false);
+  assert.ok(!pageText(buildInvoicePdf({ customer: fund1Only, plan, branding: {}, invoice: {} })).join('\n').includes('Deal and category'));
 });

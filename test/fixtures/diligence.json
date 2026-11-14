@@ -1,0 +1,489 @@
+{
+  "_comment": "Diligence scenario: three deals in diligence plus fund-level costs, all billed to Fund I. Project Atlas/Beacon/Cedar are test-only Deals tags.",
+  "deals": [
+    {
+      "dealsTag": "Project Atlas",
+      "dealsTagId": 1029001,
+      "billingType": "Fund",
+      "customer": {
+        "name": "Fund I",
+        "customerId": 22874359,
+        "campfireId": "CUST-0000001",
+        "billbackTagId": 1027953
+      }
+    },
+    {
+      "dealsTag": "Project Beacon",
+      "dealsTagId": 1029002,
+      "billingType": "Fund",
+      "customer": {
+        "name": "Fund I",
+        "customerId": 22874359,
+        "campfireId": "CUST-0000001",
+        "billbackTagId": 1027953
+      }
+    },
+    {
+      "dealsTag": "Project Cedar",
+      "dealsTagId": 1029003,
+      "billingType": "Fund",
+      "customer": {
+        "name": "Fund I",
+        "customerId": 22874359,
+        "campfireId": "CUST-0000001",
+        "billbackTagId": 1027953
+      }
+    }
+  ],
+  "bills": [
+    {
+      "id": 5930001,
+      "bill_number": "HP-24117",
+      "bill_date": "2026-11-03",
+      "due_date": "2026-12-06",
+      "item_date": "2026-11-03",
+      "status": "open",
+      "entity": 57560,
+      "entity_name": "David Silver - Rekindle",
+      "vendor": 22861210,
+      "vendor_name": "Hartwell & Pike LLP (VEN-0000004)",
+      "payment_term": 113409,
+      "ap_account": 1484279,
+      "currency": "USD",
+      "total_amount": "28772.50",
+      "lines": [
+        {
+          "id": 9500101,
+          "account_number": "13190",
+          "description": "Legal due diligence, Atlas: contracts and IP review",
+          "amount": "14250.00",
+          "tags": [
+            {
+              "id": 1027811,
+              "group": 46589,
+              "name": "Legal",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029001,
+              "group": 46588,
+              "name": "Project Atlas",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500102,
+          "account_number": "13190",
+          "description": "Legal due diligence, Beacon: regulatory review",
+          "amount": "8912.50",
+          "tags": [
+            {
+              "id": 1027811,
+              "group": 46589,
+              "name": "Legal",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029002,
+              "group": 46588,
+              "name": "Project Beacon",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500103,
+          "account_number": "13190",
+          "description": "NDA and LOI review, Cedar",
+          "amount": "3400.00",
+          "tags": [
+            {
+              "id": 1027811,
+              "group": 46589,
+              "name": "Legal",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029003,
+              "group": 46588,
+              "name": "Project Cedar",
+              "is_deleted": false
+            }
+          ]
+        },
+        {
+          "id": 9500104,
+          "account_number": "13190",
+          "description": "Fund I LPA amendment",
+          "amount": "2210.00",
+          "tags": [
+            {
+              "id": 1027811,
+              "group": 46589,
+              "name": "Legal",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1027964,
+              "group": 46588,
+              "name": "Fund I",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        }
+      ]
+    },
+    {
+      "id": 5930002,
+      "bill_number": "MAA-0391",
+      "bill_date": "2026-11-05",
+      "due_date": "2026-12-06",
+      "item_date": "2026-11-05",
+      "status": "open",
+      "entity": 57560,
+      "entity_name": "David Silver - Rekindle",
+      "vendor": 22861210,
+      "vendor_name": "Meridian Accounting Advisors (VEN-0000005)",
+      "payment_term": 113409,
+      "ap_account": 1484279,
+      "currency": "USD",
+      "total_amount": "40300.00",
+      "lines": [
+        {
+          "id": 9500201,
+          "account_number": "13190",
+          "description": "Quality of earnings report, Atlas",
+          "amount": "22500.00",
+          "tags": [
+            {
+              "id": 1027805,
+              "group": 46589,
+              "name": "Consulting",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029001,
+              "group": 46588,
+              "name": "Project Atlas",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500202,
+          "account_number": "13190",
+          "description": "Quality of earnings, phase 1, Beacon",
+          "amount": "17800.00",
+          "tags": [
+            {
+              "id": 1027805,
+              "group": 46589,
+              "name": "Consulting",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029002,
+              "group": 46588,
+              "name": "Project Beacon",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        }
+      ]
+    },
+    {
+      "id": 5930003,
+      "bill_number": "AMEX-2611B",
+      "bill_date": "2026-11-09",
+      "due_date": "2026-12-06",
+      "item_date": "2026-11-09",
+      "status": "open",
+      "entity": 57560,
+      "entity_name": "David Silver - Rekindle",
+      "vendor": 22861210,
+      "vendor_name": "American Express (VEN-0000002)",
+      "payment_term": 113409,
+      "ap_account": 1484279,
+      "currency": "USD",
+      "total_amount": "4320.56",
+      "lines": [
+        {
+          "id": 9500301,
+          "account_number": "13190",
+          "description": "Site visit, Atlas HQ (Denver)",
+          "amount": "1284.60",
+          "tags": [
+            {
+              "id": 1027803,
+              "group": 46589,
+              "name": "Airfare",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029001,
+              "group": 46588,
+              "name": "Project Atlas",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500302,
+          "account_number": "13190",
+          "description": "Hotel, Atlas site visit, 2 nights x 3 people",
+          "amount": "1912.33",
+          "tags": [
+            {
+              "id": 1027809,
+              "group": 46589,
+              "name": "Hotel Charges",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029001,
+              "group": 46588,
+              "name": "Project Atlas",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500303,
+          "account_number": "13190",
+          "description": "Management meeting, Beacon (Chicago)",
+          "amount": "642.18",
+          "tags": [
+            {
+              "id": 1027803,
+              "group": 46589,
+              "name": "Airfare",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029002,
+              "group": 46588,
+              "name": "Project Beacon",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500304,
+          "account_number": "13190",
+          "description": "Dinner with Cedar founders",
+          "amount": "186.45",
+          "tags": [
+            {
+              "id": 1027813,
+              "group": 46589,
+              "name": "Meals",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029003,
+              "group": 46588,
+              "name": "Project Cedar",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500305,
+          "account_number": "13190",
+          "description": "Car service, Cedar meeting",
+          "amount": "74.90",
+          "tags": [
+            {
+              "id": 1027808,
+              "group": 46589,
+              "name": "Ground Transportation",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029003,
+              "group": 46588,
+              "name": "Project Cedar",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500306,
+          "account_number": "13190",
+          "description": "Deal XYZ board dinner",
+          "amount": "220.10",
+          "tags": [
+            {
+              "id": 1027813,
+              "group": 46589,
+              "name": "Meals",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1027801,
+              "group": 46588,
+              "name": "Deal XYZ",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Deal"
+        }
+      ]
+    },
+    {
+      "id": 5930004,
+      "bill_number": "SBS-7781",
+      "bill_date": "2026-11-11",
+      "due_date": "2026-12-06",
+      "item_date": "2026-11-11",
+      "status": "open",
+      "entity": 57560,
+      "entity_name": "David Silver - Rekindle",
+      "vendor": 22861210,
+      "vendor_name": "Sterling Background Services (VEN-0000006)",
+      "payment_term": 113409,
+      "ap_account": 1484279,
+      "currency": "USD",
+      "total_amount": "2400.00",
+      "lines": [
+        {
+          "id": 9500401,
+          "account_number": "13190",
+          "description": "Management background checks, Atlas",
+          "amount": "1450.00",
+          "tags": [
+            {
+              "id": 1027814,
+              "group": 46589,
+              "name": "Other",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029001,
+              "group": 46588,
+              "name": "Project Atlas",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        },
+        {
+          "id": 9500402,
+          "account_number": "13190",
+          "description": "Founder background checks, Cedar",
+          "amount": "950.00",
+          "tags": [
+            {
+              "id": 1027814,
+              "group": 46589,
+              "name": "Other",
+              "is_deleted": false
+            },
+            {
+              "id": 1027943,
+              "group": 46610,
+              "name": "Pending",
+              "is_deleted": false
+            },
+            {
+              "id": 1029003,
+              "group": 46588,
+              "name": "Project Cedar",
+              "is_deleted": false
+            }
+          ],
+          "custom_field_defaultbillingtype": "Fund"
+        }
+      ]
+    }
+  ]
+}
