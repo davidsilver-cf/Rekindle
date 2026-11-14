@@ -109,7 +109,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
   const source = ctx.demo
     ? `<div class="banner demo"><b>Demo data.</b> Showing test bill ABC_261106 from the repo. Add <code>CAMPFIRE_API_KEY</code> on Render to read live bills.</div>`
     : '';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell">
 <nav aria-label="Rekindle"><div class="brand">${FLAME}<div><b>Rekindle</b><small>Billback for Campfire</small></div></div>${nav}
 <div class="foot">${ctx.user ? `<span class="who"><b style="color:var(--ink)">${esc(ctx.user.name || ctx.user.email)}</b><span>${esc(ctx.user.email)}${ctx.admin ? ' · admin' : ''}</span></span><form method="post" action="/logout"><button class="btn sm" type="submit">Sign out</button></form>` : ''}<span>${ctx.demo ? 'Demo mode' : 'Live from Campfire'}</span><span>Approvals saved: ${ctx.storeKind === 'postgres' ? 'database' : 'not saved (no database)'}</span><span>Writing to Campfire: ${ctx.write ? 'on' : 'off'}</span><span>Loaded ${esc(ctx.loadedAt)}</span></div></nav>
@@ -556,7 +556,7 @@ export function confirmInvoicesPage(ctx, chosen) {
 }
 
 export function loginPage(error, { google = false, token = true } = {}) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
 <body><main style="max-width:420px;margin:12vh auto"><div class="card pad" style="gap:16px;padding:28px">${FLAME}<h1>Rekindle</h1>
 ${error ? `<div class="banner bad">${esc(error)}</div>` : ''}
 ${google ? '<a class="btn primary" href="/auth/google">Sign in with Google</a>' : ''}

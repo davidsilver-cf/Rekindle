@@ -34,6 +34,9 @@ import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 const STATIC = {
   '/static/queue.js': { file: '../public/queue.js', type: 'text/javascript; charset=utf-8' },
   '/static/deals.js': { file: '../public/deals.js', type: 'text/javascript; charset=utf-8' },
+  // The Rekindle flame as the browser-tab icon (/favicon.ico for browsers that ask for it directly).
+  '/favicon.svg': { file: '../public/favicon.svg', type: 'image/svg+xml' },
+  '/favicon.ico': { file: '../public/favicon.svg', type: 'image/svg+xml' },
 };
 const BILL_TOPICS = new Set(['Bill.created', 'Bill.updated']);
 const OAUTH_COOKIE = 'rekindle_oauth';

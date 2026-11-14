@@ -88,3 +88,7 @@ test('invoice product banner: missing vs not a number', () => {
   assert.match(uuid, /not its long ID/);
   assert.doesNotMatch(invoicesPage({ ...ctx(), productMissing: false }), /Invoice product/);
 });
+
+test('pages link the flame favicon', () => {
+  assert.match(queuePage(ctx()), /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.svg">/);
+});
