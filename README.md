@@ -165,3 +165,20 @@ Rekindle can connect to Campfire as an OAuth app instead of using an API key: sc
 - **Sign in with Campfire** is on the login page (asks only `openid email profile`). The same sign-in rules apply: `REKINDLE_ALLOWED_DOMAIN`, `REKINDLE_ALLOWED_EMAILS`, `REKINDLE_ADMINS`.
 - **Manage URL:** Campfire opens it with a signed `cf_ctx`. A valid one (HS256 with the client secret or `CAMPFIRE_CONTEXT_SECRET`, or RS256/ES256 from Campfire's JWKS) signs the person straight in; anything else sends them through Sign in with Campfire.
 - **Disconnect** (Settings) revokes the tokens and Rekindle goes back to demo data (or the API key, if set).
+
+## Inside Campfire (buttons, panels, navigation)
+
+Set up on the Rekindle app in Campfire (Settings → Apps). Replace the host with your service's.
+
+| Kind | Label | Object / placement | URL template |
+|---|---|---|---|
+| Navigation | Rekindle | Top level, no URL (a section) | — |
+| Navigation | Billback queue · Deals & allocations · Approvals · Invoices · Settings | Under Rekindle | `https://<host>/` · `/deals` · `/approvals` · `/invoices` · `/settings` |
+| Panel | Rekindle billback | Bills, Detail page | `https://<host>/campfire/panel/bill/{{record.id}}` |
+| Panel | Rekindle | Invoices, Detail page | `https://<host>/campfire/panel/invoice/{{record.id}}` |
+| Button | Open in Rekindle | Bills, Detail page header, Open link | `https://<host>/?bill={{record.number}}` |
+| Button | Rekindle PDF | Invoices, Detail page header, Open link | `https://<host>/campfire/invoice/{{record.id}}/pdf` |
+
+- Pages shown inside Campfire get a slim tab bar instead of the sidebar. Framing is allowed only for Campfire (`REKINDLE_FRAME_ANCESTORS` overrides the list).
+- A signed `cf_ctx` from Campfire signs the person in on any page. Without one, an embedded page offers **Sign in to Rekindle** in a new tab, then Reload. The session cookie is `SameSite=None` over HTTPS so it works in the frame; form posts from other sites are refused.
+- Rejected `cf_ctx` tokens are logged with their header and claim *names* (never values), to see how Campfire signs them.

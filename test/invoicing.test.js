@@ -271,3 +271,34 @@ test('if Campfire drops line tags on create, Rekindle sets them on the invoice l
   assert.equal((await post('/invoices/retag', { run: runId })).headers.get('location'), '/invoices?retagged=yes');
   assert.deepEqual(stored.get(inv.id).lines[0].tag_ids.sort(), [1027801, 1027811, 1027947, 1027957].sort());
 });
+
+test('inside Campfire: panels on bills and invoices, embedded screens, PDF button, framing and cross-site posts', async () => {
+  const iframe = (path, cookie = admin()) => fetch(base + path, { headers: { cookie, 'sec-fetch-dest': 'iframe' }, redirect: 'manual' });
+  const inv = sent.invoices.find((i) => i.client === 22874359); // Fund I
+  // Invoice panel: the run behind it, its source lines, PDF and Re-apply tags.
+  let page = await (await iframe(`/campfire/panel/invoice/${inv.id}`)).text();
+  assert.match(page, /<b>Fund I<\/b> · \$8,000\.00/);
+  assert.match(page, /ABC_261106/);
+  assert.match(page, /Rekindle PDF/);
+  assert.match(page, /name="back" value="\/campfire\/panel\/invoice\/\d+"/);
+  assert.match(await (await iframe('/campfire/panel/invoice/1')).text(), /Rekindle didn't create this invoice/);
+  // Bill panel: every 13190 line with its status and invoice.
+  page = await (await iframe(`/campfire/panel/bill/${bills[0].id}`)).text();
+  assert.match(page, /Billed/);
+  assert.match(page, new RegExp(`INV-${inv.id}`));
+  assert.match(page, /Open in Rekindle/);
+  // PDF button on a Campfire invoice goes to Rekindle's PDF.
+  assert.match((await iframe(`/campfire/invoice/${inv.id}/pdf`)).headers.get('location'), /^\/invoices\/run\/\d+\/pdf$/);
+  // Full screens inside Campfire: tab bar, no sidebar; framing allowed only for Campfire.
+  const q = await iframe('/');
+  page = await q.text();
+  assert.match(page, /class="tabs"/);
+  assert.doesNotMatch(page, /<nav aria-label="Rekindle">/);
+  assert.match(q.headers.get('content-security-policy'), /frame-ancestors 'self' https:\/\/\*\.meetcampfire\.com/);
+  // Not signed in, inside a frame: sign in opens in a new tab.
+  page = await (await fetch(`${base}/login`, { headers: { 'sec-fetch-dest': 'iframe' } })).text();
+  assert.match(page, /target="_blank"[^>]*>Sign in to Rekindle/);
+  // A form posted from another site is refused even with a valid session.
+  const evil = await fetch(`${base}/invoices/retag`, { method: 'POST', redirect: 'manual', headers: { cookie: admin(), origin: 'https://evil.example', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'run=1' });
+  assert.equal(evil.status, 403);
+});

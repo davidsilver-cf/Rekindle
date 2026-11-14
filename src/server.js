@@ -16,12 +16,12 @@ import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice } from './campfire.js';
 import { processBills } from './process.js';
-import { planBills } from './engine.js';
+import { planBills, planLine } from './engine.js';
 import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage } from './ui.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
@@ -69,12 +69,37 @@ function machineOk(url, req) {
   return safeEqual(want, url.searchParams.get('token')) || safeEqual(want, bearer) || isAdmin(currentUser(req));
 }
 
+// Who may show Rekindle inside a frame: Rekindle itself and Campfire.
+const frameAncestors = () => process.env.REKINDLE_FRAME_ANCESTORS || "'self' https://*.meetcampfire.com https://meetcampfire.com https://*.campfire.ai";
+
+// Shown inside Campfire (a panel or navigation entry)?
+const isEmbedded = (req, url) => req.headers['sec-fetch-dest'] === 'iframe' || url.searchParams.get('embed') === '1';
+
+// Refuse form posts that come from another site (the session cookie is
+// SameSite=None so it works inside Campfire).
+function crossSitePost(req) {
+  if (req.method !== 'POST') return false;
+  if (req.headers['sec-fetch-site'] === 'cross-site') return true;
+  const origin = req.headers.origin;
+  if (!origin || origin === 'null') return Boolean(origin);
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  return origin !== `${proto}://${req.headers.host}`;
+}
+
+// Diagnostics for a cf_ctx that didn't verify: its header and claim names, never values.
+function describeToken(t) {
+  try {
+    const [h, p] = String(t).split('.');
+    return { header: JSON.parse(Buffer.from(h, 'base64url').toString('utf8')), claims: Object.keys(JSON.parse(Buffer.from(p, 'base64url').toString('utf8'))) };
+  } catch { return { shape: `${String(t).split('.').length} parts, ${String(t).length} chars` }; }
+}
+
 function send(res, status, body, type = 'text/plain; charset=utf-8', headers = {}) {
   res.writeHead(status, {
     'Content-Type': type,
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
-    ...(type.startsWith('text/html') ? { 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://accounts.google.com; frame-ancestors 'none'" } : {}),
+    ...(type.startsWith('text/html') ? { 'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self' https://accounts.google.com; frame-ancestors ${frameAncestors()}` } : {}),
     ...headers,
   });
   res.end(typeof body === 'string' ? body : JSON.stringify(body, null, 2));
@@ -152,6 +177,8 @@ async function screenContext(user) {
 }
 
 const n = (s, k) => Number(s.get(k)) || 0;
+// Where a form may send you back to: only a Rekindle panel path.
+const backTo = (form, fallback) => (/^\/campfire\/panel\/(bill|invoice)\/\d+$/.test(form.get('back') || '') ? form.get('back') : fallback);
 const SCREENS = {
   '/': (ctx, url) => {
     const s = url.searchParams;
@@ -200,8 +227,33 @@ const SCREENS = {
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
-  const user = currentUser(req);
+  let user = currentUser(req);
   await connectionLoaded();
+  const embed = isEmbedded(req, url);
+
+  // Server-to-server and token calls carry no cookie; everything else must come from Rekindle's own pages.
+  const tokenCall = url.searchParams.has('token') || /^Bearer\s/i.test(req.headers.authorization || '');
+  if (url.pathname !== '/webhooks/campfire' && !tokenCall && crossSitePost(req)) {
+    console.log(JSON.stringify({ event: 'cross_site_post_refused', path: url.pathname, origin: req.headers.origin || null }));
+    return send(res, 403, 'Refused: this form was sent from another site.');
+  }
+
+  // Campfire adds a signed cf_ctx when it opens a Rekindle page (Manage URL,
+  // panels, navigation, buttons). A valid one signs the person in.
+  if (url.searchParams.has('cf_ctx') && url.pathname !== '/campfire/manage') {
+    const t = url.searchParams.get('cf_ctx');
+    try {
+      const who = await verifyContext(t);
+      if (who.email && allowedToSignIn(who.email)) {
+        user = { email: who.email, name: who.name, via: 'campfire' };
+        res.setHeader('Set-Cookie', sessionCookie(makeSession(user), req));
+      } else {
+        console.log(JSON.stringify({ event: 'cf_ctx_not_allowed', email: who.email || null }));
+      }
+    } catch (err) {
+      console.log(JSON.stringify({ event: 'cf_ctx_rejected', error: err.message, token: describeToken(t) }));
+    }
+  }
 
   if (req.method === 'GET' && url.pathname === '/health') {
     let database = false;
@@ -220,7 +272,7 @@ async function handle(req, res) {
   }
 
   // ---- Sign in / out
-  const loginOpts = { google: googleConfigured(), campfire: oauthConfigured(), token: Boolean(process.env.REKINDLE_ADMIN_TOKEN) };
+  const loginOpts = { google: googleConfigured(), campfire: oauthConfigured(), token: Boolean(process.env.REKINDLE_ADMIN_TOKEN), embed };
   if (url.pathname === '/login') {
     if (req.method === 'GET') return html(res, loginPage(null, loginOpts));
     if (req.method === 'POST') {
@@ -330,7 +382,7 @@ async function handle(req, res) {
         }
         console.log(JSON.stringify({ event: 'manage_denied', email: who.email }));
       } catch (err) {
-        console.log(JSON.stringify({ event: 'manage_ctx_rejected', error: err.message }));
+        console.log(JSON.stringify({ event: 'manage_ctx_rejected', error: err.message, token: describeToken(ctxToken) }));
       }
     }
     if (user) return redirect(res, '/');
@@ -355,7 +407,7 @@ async function handle(req, res) {
     const s = url.searchParams;
     const flash = s.has('connected') ? { ok: true, text: 'Connected to Campfire. Rekindle now reads and writes with this connection.' }
       : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' } : null;
-    return html(res, settingsPage({ ...ctx, settings: {
+    return html(res, settingsPage({ ...ctx, embed, settings: {
       appConfigured: oauthConfigured(),
       apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
       scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',
@@ -375,10 +427,41 @@ async function handle(req, res) {
     return redirect(res, '/settings?disconnected=1');
   }
 
+  // ---- Inside Campfire: panels on bills and invoices, and the invoice PDF button.
+  const panel = req.method === 'GET' && url.pathname.match(/^\/campfire\/panel\/(bill|invoice)\/(\d+)$/);
+  if (panel) {
+    if (!user) return redirect(res, '/login');
+    const id = Number(panel[2]);
+    const store = await getStore();
+    const base = { user, admin: isAdmin(user), write: writeEnabled(), demo: demoMode(), back: url.pathname, flash: url.searchParams.get('retagged') };
+    try {
+      if (panel[1] === 'bill') {
+        const [config, bill] = await Promise.all([loadConfig(), demoMode() ? loadBills().then((b) => b.find((x) => x.id === id)) : getBill(id)]);
+        if (!bill) return html(res, panelPage({ ...base, kind: 'bill', missing: true }));
+        const lines = (bill.lines || []).filter((l) => l.account_number === config.unbilledAccountNumber);
+        const invoices = lines.length ? await store.invoicesForLines(lines.map((l) => l.id)) : [];
+        return html(res, panelPage({ ...base, kind: 'bill', bill, config, lines: lines.map((l) => ({ line: l, plan: planLine(bill, l, config) })), invoices }));
+      }
+      const run = await store.runByInvoice(id);
+      const items = run ? await store.runItems(run.id) : [];
+      return html(res, panelPage({ ...base, kind: 'invoice', run, items }));
+    } catch (err) {
+      console.log(JSON.stringify({ event: 'panel_error', path: url.pathname, error: err.message }));
+      return html(res, panelPage({ ...base, kind: panel[1], error: err.message }), 502);
+    }
+  }
+  const invPdf = req.method === 'GET' && url.pathname.match(/^\/campfire\/invoice\/(\d+)\/pdf$/);
+  if (invPdf) {
+    if (!user) return redirect(res, '/login');
+    const run = await (await getStore()).runByInvoice(Number(invPdf[1]));
+    if (!run?.pdf) return html(res, panelPage({ user, kind: 'invoice', run: null, items: [] }), 404);
+    return redirect(res, `/invoices/run/${run.id}/pdf`);
+  }
+
   // ---- Screens and actions need a signed-in user
   if (req.method === 'GET' && SCREENS[url.pathname]) {
     if (!user) return redirect(res, '/login');
-    return html(res, SCREENS[url.pathname](await screenContext(user), url));
+    return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed }, url));
   }
 
   if (req.method === 'GET' && url.pathname === '/invoices/pdf') {
@@ -451,10 +534,10 @@ async function handle(req, res) {
       try {
         const note = await retagRun(run.id, { store, api: campfireApi, config, log: console.log });
         await store.audit(user.email, 'invoice_retag', { ref: run.ref, ok: !note });
-        return redirect(res, `/invoices?retagged=${note ? 'no' : 'yes'}`);
+        return redirect(res, `${backTo(form, '/invoices')}?retagged=${note ? 'no' : 'yes'}`);
       } catch (err) {
         await store.updateRun(run.id, { error: `Re-apply tags failed: ${err.message}` });
-        return redirect(res, '/invoices?retagged=no');
+        return redirect(res, `${backTo(form, '/invoices')}?retagged=no`);
       }
     }
 

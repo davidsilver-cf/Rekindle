@@ -45,6 +45,9 @@ ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_tok
   connected_by = CASE WHEN $8 THEN EXCLUDED.connected_by ELSE campfire_connection.connected_by END,
   connected_at = CASE WHEN $8 THEN now() ELSE campfire_connection.connected_at END`,
   deleteConnection: 'DELETE FROM campfire_connection WHERE id = 1',
+  runByInvoice: `SELECT id FROM invoice_runs WHERE campfire_invoice_id = $1 ORDER BY id DESC LIMIT 1`,
+  invoicesForLines: `SELECT i.line_id, i.customer_tag_id, i.cents, i.percent, r.id AS run_id, r.invoice_number, r.campfire_invoice_id, r.status, r.customer_name
+FROM invoice_items i JOIN invoice_runs r ON r.id = i.run_id WHERE i.line_id = ANY($1::bigint[]) ORDER BY r.id`,
 };
 
 export class ShareTakenError extends Error {}
@@ -125,6 +128,17 @@ export function memoryStore() {
     async itemsForLines(lineIds) {
       const want = new Set(lineIds);
       return items.filter((i) => want.has(i.line_id)).map((i) => ({ line_id: i.line_id, customer_tag_id: i.customer_tag_id }));
+    },
+    async runByInvoice(campfireId) {
+      const r = runs.slice().reverse().find((x) => Number(x.campfire_invoice_id) === Number(campfireId));
+      return r ? { ...r } : null;
+    },
+    async invoicesForLines(lineIds) {
+      const want = new Set(lineIds.map(Number));
+      return items.filter((i) => want.has(i.line_id)).map((i) => {
+        const r = runs.find((x) => x.id === i.run_id) || {};
+        return { line_id: i.line_id, customer_tag_id: i.customer_tag_id, cents: i.cents, percent: i.percent, run_id: i.run_id, invoice_number: r.invoice_number, campfire_invoice_id: r.campfire_invoice_id, status: r.status, customer_name: r.customer_name };
+      });
     },
   };
 }
@@ -246,6 +260,14 @@ export async function postgresStore(connectionString) {
     async itemsForLines(lineIds) {
       const { rows } = await q(SQL.itemsForLines, [lineIds]);
       return rows.map((r) => ({ line_id: Number(r.line_id), customer_tag_id: Number(r.customer_tag_id) }));
+    },
+    async runByInvoice(campfireId) {
+      const { rows } = await q(SQL.runByInvoice, [campfireId]);
+      return rows[0] ? this.getRun(Number(rows[0].id)) : null;
+    },
+    async invoicesForLines(lineIds) {
+      const { rows } = await q(SQL.invoicesForLines, [lineIds]);
+      return rows.map((r) => ({ ...r, line_id: Number(r.line_id), customer_tag_id: Number(r.customer_tag_id), cents: Number(r.cents), percent: Number(r.percent), run_id: Number(r.run_id), campfire_invoice_id: r.campfire_invoice_id ? Number(r.campfire_invoice_id) : null }));
     },
   };
 }

@@ -38,6 +38,12 @@ h1{margin:0;font-size:26px}h2{margin:0;font-size:16px}
 .head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
 .card{background:#fff;border:1px solid var(--line);border-radius:12px}
+.embedded .shell{display:block;min-height:0}.embedded main{padding:16px 20px;gap:16px}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 16px;background:#fff;border-bottom:1px solid var(--line);align-items:center}
+.tabs a{padding:6px 12px;border-radius:8px;color:#3F3B36;text-decoration:none;font-size:13px;min-height:32px;display:inline-flex;align-items:center;gap:6px}
+.tabs a.on{background:var(--accent-tint);color:var(--accent-dark);font-weight:600}.tabs .spacer{flex:1}.tabs .who{font-size:12px;color:var(--quiet)}
+.panel{padding:12px;display:flex;flex-direction:column;gap:12px;font-size:13px}.panel h2{font-size:14px;margin:0}
+.panel table{font-size:12px}.panel .btn{min-height:32px;padding:0 12px;font-size:13px}
 .kpi{padding:18px;display:flex;flex-direction:column;gap:6px}
 .kpi span{font-size:13px;color:var(--quiet)}.kpi strong{font-size:26px}
 .cardhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -110,6 +116,13 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
   const source = ctx.demo
     ? `<div class="banner demo"><b>Demo data.</b> Showing test bill ABC_261106 from the repo. <a href="/settings">Connect Campfire</a> to read live bills.</div>`
     : '';
+  if (ctx.embed) {
+    // Inside Campfire: Campfire has the main menu, so a slim tab bar instead of the sidebar.
+    const tabs = items.map(([href, key, label, count, alert, title]) => `<a href="${href}"${active === key ? ' class="on" aria-current="page"' : ''}>${label}${count == null ? '' : `<span class="pill" title="${esc(title)}" style="${alert ? 'background:#991B1B;color:#fff' : 'background:#F1EEE9;color:#3F3B36'}">${count}</span>`}</a>`).join('');
+    return `<!doctype html><html lang="en" class="embedded"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell"><div class="tabs" role="navigation" aria-label="Rekindle">${tabs}<span class="spacer"></span><span class="who">${ctx.demo ? 'Demo data · ' : ''}${ctx.write ? '' : 'Writing off · '}${esc(ctx.user?.email || '')}</span></div>
+<main>${source}${body}</main></div>${scripts.map((src) => `<script src="${src}" defer></script>`).join('')}</body></html>`;
+  }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Rekindle · ${esc(title)}</title><style>${CSS}</style></head><body><div class="shell">
 <nav aria-label="Rekindle"><div class="brand">${FLAME}<div><b>Rekindle</b><small>Billback for Campfire</small></div></div>${nav}
@@ -556,7 +569,15 @@ export function confirmInvoicesPage(ctx, chosen) {
   });
 }
 
-export function loginPage(error, { google = false, campfire = false, token = true } = {}) {
+export function loginPage(error, { google = false, campfire = false, token = true, embed = false } = {}) {
+  if (embed) {
+    // Sign-in pages (Campfire's, Google's) won't open inside a frame: sign in in a new tab, then reload.
+    return `<!doctype html><html lang="en" class="embedded"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
+<body><div class="panel">${error ? `<div class="banner bad">${esc(error)}</div>` : ''}<div style="display:flex;align-items:center;gap:8px">${FLAME}<b>Rekindle</b></div>
+<p class="sub" style="margin:0">Sign in to Rekindle to see this here.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="/login" target="_blank" rel="noopener">Sign in to Rekindle</a><a class="btn" href="">Reload</a></div>
+<p class="small muted" style="margin:0">Sign in opens in a new tab. Then come back and press Reload.</p></div></body></html>`;
+  }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
 <body><main style="max-width:420px;margin:12vh auto"><div class="card pad" style="gap:16px;padding:28px">${FLAME}<h1>Rekindle</h1>
 ${error ? `<div class="banner bad">${esc(error)}</div>` : ''}
@@ -611,4 +632,56 @@ ${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${es
 ${st.fallbacks?.length ? `<div class="card"><div class="pad"><h2 style="margin:0">Still using the API key</h2><p class="sub" style="margin:0">Campfire refused the app these calls, so Rekindle made them with <code>CAMPFIRE_API_KEY</code>. Give the Rekindle app the matching permission in Campfire (Settings → Apps), reconnect, and keep the API key until this list stays empty.</p></div><div class="scroll"><table><thead><tr><th>Call</th><th class="num">Times</th><th>Last</th></tr></thead><tbody>${st.fallbacks.map((f) => `<tr><td><code>${esc(f.path)}</code></td><td class="num">${f.count}</td><td>${esc(atET(f.last))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
 ${tech}`,
   });
+}
+
+// ---- Panels inside Campfire's bill and invoice pages
+const cfStatus = (line, config) => (line.tags || []).find((t) => t.group === config.tagGroups.billbackStatus && !t.is_deleted)?.name || '—';
+const dealOf = (line, config) => (line.tags || []).find((t) => t.group === config.tagGroups.deals && !t.is_deleted)?.name || null;
+
+export function panelPage(p) {
+  const open = (href, label, primary = false) => `<a class="btn${primary ? ' primary' : ''}" href="${esc(href)}" target="_blank" rel="noopener">${label}</a>`;
+  let body;
+  if (p.error) {
+    body = `<div class="banner bad">Rekindle couldn't load this: ${esc(p.error)}</div>`;
+  } else if (p.kind === 'bill') {
+    if (p.missing) {
+      body = '<p class="sub" style="margin:0">Rekindle can\'t find this bill.</p>';
+    } else if (!p.lines.length) {
+      body = `<p class="sub" style="margin:0">No lines on ${esc(p.config.unbilledAccountNumber)} Unbilled Receivable, so nothing to bill back.</p>`;
+    } else {
+      const rows = p.lines.map(({ line, plan }) => {
+        const inv = p.invoices.filter((i) => i.line_id === line.id);
+        let billed;
+        if (plan?.exception) billed = `<span class="no">${esc(plan.exception)}</span>`;
+        else if (plan?.billingType === 'Expense') billed = '<span class="muted">Not billed back</span>';
+        else if (plan?.billTo?.length) billed = plan.billTo.map((b) => `${esc(b.customer.name)}${b.percent < 100 ? ` ${b.percent}%` : ''}`).join('<br>');
+        else billed = '<span class="muted">—</span>';
+        const invoices = inv.length
+          ? inv.map((i) => `${esc(i.invoice_number || 'creating…')} <span class="muted">${esc(i.customer_name || '')}</span>`).join('<br>')
+          : '<span class="muted">Not invoiced</span>';
+        return `<tr><td>${esc(line.description || '')}<div class="muted">${esc(dealOf(line, p.config) || 'No deal')}${plan?.billingType ? ` · ${pill(plan.billingType, TYPE_STYLE[plan.billingType] || '')}` : ''}</div></td>
+<td class="num">${usd(Math.round(Number(line.amount) * 100))}</td><td>${esc(cfStatus(line, p.config))}</td><td>${billed}</td><td>${invoices}</td></tr>`;
+      }).join('');
+      body = `<div class="scroll"><table><thead><tr><th>Line</th><th class="num">Amount</th><th>Billback status</th><th>Billed to</th><th>Invoice</th></tr></thead><tbody>${rows}</tbody></table></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">${open(`/?bill=${encodeURIComponent(p.bill.bill_number || '')}`, 'Open in Rekindle', true)}${open('/approvals', 'Approvals')}</div>`;
+    }
+  } else if (!p.run) {
+    body = '<p class="sub" style="margin:0">Rekindle didn\'t create this invoice, so there are no billback details for it.</p>';
+  } else {
+    const r = p.run;
+    const lines = new Map((r.payload?.pdfInput?.plan?.lines || []).map((l) => [l.lineId, l]));
+    const rows = p.items.map((i) => {
+      const l = lines.get(i.line_id) || {};
+      return `<tr><td>${esc(l.billNumber || i.bill_id)}</td><td>${esc(l.dealsTag || '')}</td><td>${esc(l.rechargeCategory || '')}</td><td>${esc(l.description || '')}</td><td class="num">${i.percent < 100 ? `${i.percent}% · ` : ''}${usd(i.cents)}</td></tr>`;
+    }).join('');
+    const flash = p.flash ? `<div class="banner ${p.flash === 'yes' ? 'good' : 'bad'}">${p.flash === 'yes' ? 'Tags and departments applied to this invoice\'s lines.' : 'Tags weren\'t applied; see the note below.'}</div>` : '';
+    const retag = p.admin && p.write && r.campfire_invoice_id
+      ? `<form method="post" action="/invoices/retag" style="display:inline"><input type="hidden" name="run" value="${esc(r.id)}"><input type="hidden" name="back" value="${esc(p.back)}"><button class="btn" type="submit">Re-apply tags</button></form>` : '';
+    body = `${flash}<div><b>${esc(r.customer_name)}</b> · ${usd(r.total_cents)} · Rekindle ref <code>${esc(r.ref)}</code> · ${esc(r.status)}</div>
+${r.error ? `<div class="banner bad">${esc(r.error)}</div>` : ''}
+<div class="scroll"><table><thead><tr><th>Bill</th><th>Deal</th><th>Category</th><th>Description</th><th class="num">Billed</th></tr></thead><tbody>${rows}</tbody></table></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">${r.has_pdf !== false && r.pdf !== null ? open(`/invoices/run/${r.id}/pdf`, 'Rekindle PDF', true) : ''}${retag}${open('/invoices', 'Open in Rekindle')}</div>`;
+  }
+  return `<!doctype html><html lang="en" class="embedded"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rekindle</title><style>${CSS}</style></head>
+<body><div class="panel">${p.demo ? '<div class="banner demo">Demo data</div>' : ''}${body}</div></body></html>`;
 }
