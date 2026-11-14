@@ -51,7 +51,7 @@ h1{margin:0;font-size:26px}h2{margin:0;font-size:16px}
 .head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px}
-.embedded h1.title{display:none}.embedded h1.title+.sub{margin-top:0}
+.embedded h1.title{display:none}.embedded h1.title+.sub{margin-top:0;font-size:20px;font-weight:600;color:var(--ink);line-height:1.3}
 .embedded .shell{display:block;min-height:0}.embedded main{padding:16px 20px;gap:16px}
 .tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--line);align-items:center}
 .tabs a{padding:6px 12px;border-radius:8px;color:var(--nav-ink);text-decoration:none;font-size:13px;min-height:32px;display:inline-flex;align-items:center;gap:6px}
