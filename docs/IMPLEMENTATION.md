@@ -266,6 +266,7 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | Reclass: Campfire 403 on `/coa/api/journal_entry` | The app lacks Journal Entries: Write | Step 3b, then Reconnect (the API key covers it meanwhile) |
 | Invoice or journal entry links open the wrong site or a "not found" page | The customer's Campfire isn't at app.meetcampfire.com | Set `CAMPFIRE_APP_URL` on Render to the address in their browser bar when they're in Campfire (e.g. `https://app.meetcampfire.com`) |
 | Inside Campfire, clicking an invoice or journal entry number does nothing | Campfire's frame blocks links that change the Campfire page | Open the same screen on Rekindle's own site (links open in a new tab there), and report it so the links can be switched to open a new tab |
+| Invoices: **Not linked to a Campfire customer** | The Billback Customer tag has no customer attached, and no Campfire customer has exactly the same name (Rekindle matches by name when the link is missing) | Rename the customer or the tag so the names match, or attach the customer to the tag in Campfire's tag settings |
 | First page takes a minute | Free Render plan was asleep | Normal on free; use a paid instance |
 
 ## Reference
