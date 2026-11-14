@@ -18,7 +18,8 @@ const seen = { auth: [], token: [], api: [], revoked: [] };
 let who = 'david@campfire.ai';
 let tokenN = 0;
 let expiresIn = 3600;
-let rejectToken = null; // an access token the API should refuse with 401
+let rejectToken = null;
+let noIdentity = false; // Campfire sends no ID token (identity scopes not granted) // an access token the API should refuse with 401
 const codes = new Map();
 const fake = http.createServer((req, res) => {
   let body = '';
@@ -40,6 +41,7 @@ const fake = http.createServer((req, res) => {
         if (!c || createHash('sha256').update(f.get('code_verifier') || '').digest('base64url') !== c.challenge) return json(400, { error: 'invalid_grant' });
         codes.delete(f.get('code'));
         tokenN++;
+        if (noIdentity) return json(200, { access_token: `at${tokenN}`, refresh_token: `rt${tokenN}`, token_type: 'bearer', expires_in: expiresIn, scope: 'accounting:read accounting:write' });
         return json(200, { access_token: `at${tokenN}`, refresh_token: `rt${tokenN}`, token_type: 'bearer', expires_in: expiresIn, scope: c.scope || 'accounting:read accounting:write openid email profile',
           id_token: jwt({ iss: base, aud: 'cid', email: c.who, email_verified: true, name: 'David Silver', nonce: c.nonce, exp: Math.floor(Date.now() / 1000) + 600, workspace: { id: 57560, name: 'David Silver - Rekindle' } }) });
       }
@@ -201,4 +203,21 @@ test('disconnect revokes the tokens and goes back to demo', async () => {
   assert.equal(r.headers.get('location'), '/settings?disconnected=1');
   assert.ok(seen.revoked.includes('rt1'));
   assert.match(await (await fetch(`${base}/`, { headers: { cookie } })).text(), /Demo data/);
+});
+
+test('without identity from Campfire: an admin signed in to Rekindle can still connect; sign-in explains', async () => {
+  noIdentity = true;
+  try {
+    const cookie = `rekindle_session=${makeSession({ email: 'david@campfire.ai', name: 'D', via: 'google' })}`;
+    const r = await dance('/connect/campfire', cookie);
+    assert.equal(r.headers.get('location'), '/settings?connected=1');
+    const { getStore } = await import('../src/store.js');
+    assert.equal((await (await getStore()).getConnection()).connected_by, 'david@campfire.ai');
+    // Not signed in to Rekindle: can't tell it's an admin.
+    const anon = await dance('/connect/campfire');
+    assert.equal(anon.status, 400);
+    assert.match(await anon.text(), /Sign in to Rekindle first/);
+    const login = await dance('/auth/campfire');
+    assert.match(await login.text(), /Campfire didn&#39;t say who you are|Campfire didn't say who you are/);
+  } finally { noIdentity = false; }
 });

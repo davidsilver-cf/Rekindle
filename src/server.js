@@ -283,8 +283,16 @@ async function handle(req, res) {
     if (url.searchParams.get('error')) return fail(`Campfire said: ${url.searchParams.get('error_description') || url.searchParams.get('error')}.`);
     if (!state || !safeEqual(state, url.searchParams.get('state')) || !url.searchParams.get('code')) return fail('Campfire sign-in expired or was interrupted. Try again.');
     try {
-      const { who, connection: conn } = await finishAuth(req, url.searchParams.get('code'), { verifier, nonce });
-      if (!allowedToSignIn(who.email)) {
+      const { who: found, connection: conn } = await finishAuth(req, url.searchParams.get('code'), { verifier, nonce });
+      // Connecting from Rekindle while signed in as an admin doesn't need
+      // Campfire to say who you are; signing in does.
+      const who = found || (purpose === 'connect' && isAdmin(user) ? { email: user.email, name: user.name, workspace: null, fromSession: true } : null);
+      if (!who) {
+        return fail(purpose === 'connect'
+          ? "Campfire connected but didn't say who you are, so Rekindle can't tell you're an admin. Sign in to Rekindle first (Google or token), then press Connect Campfire on Settings."
+          : "Campfire didn't say who you are (no email), so Rekindle can't sign you in. Add the openid, email and profile scopes to the Rekindle app in Campfire, or sign in with Google.");
+      }
+      if (!who.fromSession && !allowedToSignIn(who.email)) {
         console.log(JSON.stringify({ event: 'login_denied', email: who.email, via: 'campfire' }));
         return fail(`${who.email} isn't allowed to use Rekindle. Ask an admin to add you.`, 403);
       }
@@ -299,7 +307,8 @@ async function handle(req, res) {
       } else {
         await store.audit(who.email, 'sign_in', { via: 'campfire' });
       }
-      res.writeHead(303, { Location: to, 'Set-Cookie': [sessionCookie(makeSession({ email: who.email, name: who.name, via: 'campfire' }), req), clear] });
+      const session = who.fromSession ? [] : [sessionCookie(makeSession({ email: who.email, name: who.name, via: 'campfire' }), req)];
+      res.writeHead(303, { Location: to, 'Set-Cookie': [...session, clear] });
       return res.end();
     } catch (err) {
       console.log(JSON.stringify({ event: 'campfire_callback_error', error: err.message }));

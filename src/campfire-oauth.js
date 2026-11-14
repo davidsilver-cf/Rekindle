@@ -113,6 +113,8 @@ function toConnection(tok, previous = {}) {
 
 export async function finishAuth(req, code, { verifier, nonce }) {
   const tok = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri(req), code_verifier: verifier });
+  // What came back (names only, never values), to see what Campfire sends.
+  console.log(JSON.stringify({ event: 'campfire_token_response', fields: Object.keys(tok), scope: tok.scope || null, idToken: Boolean(tok.id_token) }));
   const who = await identify(tok, nonce);
   return { who, connection: toConnection(tok) };
 }
@@ -129,14 +131,18 @@ async function identify(tok, nonce) {
     if (aud.length && !aud.includes(process.env.CAMPFIRE_CLIENT_ID)) throw new Error('ID token is for another app');
     if (c.exp && c.exp * 1000 < Date.now()) throw new Error('ID token expired');
     if (c.nonce && c.nonce !== nonce) throw new Error('ID token nonce mismatch');
-  } else {
+  }
+  if (!c?.email) {
     const doc = await discovery();
     if (doc.userinfo_endpoint) {
       const res = await fetch(doc.userinfo_endpoint, { headers: { Authorization: `${tok.token_type || 'Bearer'} ${tok.access_token}`, Accept: 'application/json' } });
       if (res.ok) c = await res.json();
+      console.log(JSON.stringify({ event: 'campfire_userinfo', status: res.status, fields: res.ok && c ? Object.keys(c) : [] }));
     }
   }
-  if (!c?.email) throw new Error("Campfire didn't say who signed in (no email). Make sure the app allows the openid, email and profile scopes.");
+  // Some token responses carry the user alongside the token.
+  if (!c?.email && (tok.user?.email || tok.email)) c = { ...(tok.user || {}), email: tok.user?.email || tok.email };
+  if (!c?.email) return null; // the caller decides whether it needs to know
   if (c.email_verified === false) throw new Error('Campfire email not verified');
   return {
     email: String(c.email).toLowerCase(),
