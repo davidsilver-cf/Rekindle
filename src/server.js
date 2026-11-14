@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags } from './campfire.js';
-import { waitingLines, prepareReclass, startReclass, advanceReclass, todayISO } from './reclass.js';
+import { waitingLines, prepareReclass, startReclass, advanceReclass, todayISO, matchAccount } from './reclass.js';
 import { processBills } from './process.js';
 import { planBills, planLine } from './engine.js';
 import { formatPlan } from './report.js';
@@ -570,6 +570,9 @@ async function handle(req, res) {
       : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' }
       : s.get('reclass') === 'saved' ? { ok: true, text: 'Reclass account saved.' }
       : s.get('reclass') === 'bad' ? { ok: false, text: 'Pick an account (or enter its ID).' }
+      : s.get('reclass') === 'filled' ? { ok: true, text: `Filled ${s.get('n') || 0} categor${s.get('n') === '1' ? 'y' : 'ies'} by name. Check them below; change any that are wrong.` }
+      : s.get('reclass') === 'fillfailed' ? { ok: false, text: `Couldn't read categories or accounts from Campfire: ${s.get('why') || ''}` }
+      : s.get('reclass') === 'demo' ? { ok: false, text: 'Connect Campfire first; demo mode has no chart of accounts.' }
       : s.get('admin') === 'added' ? { ok: true, text: 'Admin added. They have admin rights the next time they load a page.' }
       : s.get('admin') === 'removed' ? { ok: true, text: 'Admin removed.' }
       : s.get('admin') === 'self' ? { ok: false, text: "You can't remove yourself. Ask another admin." }
@@ -589,7 +592,8 @@ async function handle(req, res) {
         const seen = new Map(ctx.plan.lines.filter((l) => l.rechargeCategoryId).map((l) => [l.rechargeCategoryId, l.rechargeCategory]));
         categories = [...seen].map(([id, name]) => ({ id, name }));
       }
-      reclassSetup = { categories, accounts, accountsError, saved: await (await getStore()).getReclassAccounts().catch(() => new Map()) };
+      const suggestions = new Map(accounts ? categories.map((c) => [Number(c.id), matchAccount(c, accounts)]).filter(([, a]) => a) : []);
+      reclassSetup = { categories, accounts, accountsError, suggestions, saved: await (await getStore()).getReclassAccounts().catch(() => new Map()) };
     }
     return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user, req), links, admins, reclassSetup, settings: {
       appConfigured: oauthConfigured(),
@@ -809,6 +813,29 @@ async function handle(req, res) {
   }
 
   // Settings → Reclass accounts: the expense account for each Recharge Category.
+  // Fill every unset Recharge Category with its best-guess account by name.
+  if (req.method === 'POST' && url.pathname === '/settings/reclass-accounts/fill') {
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can set reclass accounts.');
+    if (demoMode()) return redirect(res, '/settings?reclass=demo#reclass-accounts');
+    const config = await loadConfig();
+    const store = await getStore();
+    let filled = 0;
+    try {
+      const [categories, accounts, saved] = await Promise.all([listTags(config.tagGroups.rechargeCategory), listExpenseAccounts(), store.getReclassAccounts()]);
+      for (const c of categories) {
+        if (saved.get(Number(c.id))) continue;
+        const a = matchAccount(c, accounts);
+        if (!a) continue;
+        await store.saveReclassAccount({ categoryTagId: c.id, categoryName: c.name, accountId: a.id, accountLabel: a.label, by: user.email });
+        filled++;
+      }
+    } catch (err) {
+      return redirect(res, `/settings?reclass=fillfailed&why=${encodeURIComponent(err.message.slice(0, 200))}#reclass-accounts`);
+    }
+    await store.audit(user.email, 'reclass_accounts_filled', { filled });
+    return redirect(res, `/settings?reclass=filled&n=${filled}#reclass-accounts`);
+  }
+
   if (req.method === 'POST' && url.pathname === '/settings/reclass-account') {
     if (!isAdmin(user)) return send(res, 403, 'Only admins can set reclass accounts.');
     const form = new URLSearchParams(await readBody(req));

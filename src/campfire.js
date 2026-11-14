@@ -262,5 +262,10 @@ export async function listExpenseAccounts() {
     all.push(...rows.filter((a) => !a.is_deleted && a.status !== 'INACTIVE'));
     if (rows.length < limit) break;
   }
-  return all.map((a) => ({ id: a.id, label: a.name_and_number || [a.number, a.name].filter(Boolean).join(' - ') }));
+  return all.map((a) => ({
+    id: a.id,
+    label: a.name_and_number || [a.number, a.name].filter(Boolean).join(' - '),
+    name: a.name || '',
+    tagIds: (a.default_tags || []).map((t) => (typeof t === 'object' ? t.id : t)),
+  }));
 }

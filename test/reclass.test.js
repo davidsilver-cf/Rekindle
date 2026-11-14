@@ -18,7 +18,7 @@ const tag = (id, name, group, customer = null) => ({ id, name, group, customer, 
 const tags = {
   46588: [tag(1027801, 'Deal XYZ', 46588), tag(1027964, 'Fund I', 46588), tag(1027965, 'Fund II', 46588), tag(1028616, 'Fund II - Employees Only', 46588)],
   46612: [tag(1027957, 'Deal XYZ', 46612, 22874410), tag(1027953, 'Fund I', 46612, 22874359), tag(1027955, 'Fund II Main', 46612, 22874366), tag(1027954, 'Fund II Co-Invest', 46612, 22874367), tag(1027956, 'Fund II Employees Only', 46612, 22874368)],
-  46589: [tag(LEGAL, 'Legal', 46589)],
+  46589: [tag(LEGAL, 'Legal', 46589), tag(1027806, 'Expense - Meals', 46589), tag(1027807, 'Expense - Travel', 46589), tag(1027999, 'Zebra', 46589)],
 };
 const sent = { jes: [], patches: [] };
 let failNext = null;
@@ -44,7 +44,7 @@ const fake = http.createServer((req, res) => {
       return json(200, b);
     }
     if (url.pathname === '/coa/api/v1/tag' || url.pathname === '/coa/api/tag') { const r = tags[url.searchParams.get('group')] || []; return json(200, { results: r }); }
-    if (url.pathname === '/coa/api/account/balance-sheet') return json(200, { results: [{ id: 6100, name: 'Legal expense', number: '6100', name_and_number: '6100 - Legal expense', status: 'ACTIVE' }, { id: 6200, name: 'Travel', number: '6200', status: 'ACTIVE' }] });
+    if (url.pathname === '/coa/api/account/balance-sheet') return json(200, { results: [{ id: 6100, name: 'Legal expense', number: '6100', name_and_number: '6100 - Legal expense', status: 'ACTIVE' }, { id: 6200, name: 'Travel', number: '6200', status: 'ACTIVE' }, { id: 6300, name: 'Expense - Meals', number: '6300', name_and_number: '6300 - Expense - Meals', status: 'ACTIVE', default_tags: [{ id: 1027806, name: 'Expense - Meals', group: 46589 }] }] });
     if (url.pathname === '/coa/api/journal_entry' && req.method === 'POST') {
       if (failNext === '400') { failNext = null; return json(400, { transactions: ['bad account'] }); }
       const je = JSON.parse(body);
@@ -144,4 +144,26 @@ test('a refused journal entry releases the line; non-admins cannot post', async 
   assert.match(await (await get('/reclass')).text(), /Campfire refused the journal entry/);
   const viewer = `rekindle_session=${makeSession({ email: 'pat@campfire.ai', name: 'Pat', via: 'google' })}`;
   assert.equal((await fetch(`${base}/reclass/create`, { method: 'POST', headers: { cookie: viewer, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'line=9190921&confirm=yes' })).status, 403);
+});
+
+test('matchAccount: default tag first, then same name, then contains', async () => {
+  const { matchAccount } = await import('../src/reclass.js');
+  const accts = [{ id: 1, name: 'Legal' }, { id: 2, name: 'Legal & Professional', tagIds: [] }, { id: 3, name: 'Meals', tagIds: [99] }, { id: 4, name: 'Travel and Expense' }];
+  assert.equal(matchAccount({ id: 99, name: 'Expense - Meals' }, accts).id, 3);
+  assert.equal(matchAccount({ id: 5, name: 'legal' }, accts).id, 1);
+  assert.equal(matchAccount({ id: 6, name: 'Travel & Expense' }, accts).id, 4);
+  assert.equal(matchAccount({ id: 7, name: 'Zebra' }, accts), null);
+});
+
+test('Fill by name sets unset categories and leaves set ones alone', async () => {
+  const page = await (await get('/settings')).text();
+  assert.match(page, /Fill by name \(2\)/); // Legal already set; Meals matches by tag; Expense - Travel contains Travel; Zebra has none
+  assert.match(page, /Suggested: 6300 - Expense - Meals/);
+  assert.equal((await post('/settings/reclass-accounts/fill', {})).headers.get('location'), '/settings?reclass=filled&n=2#reclass-accounts');
+  const { getStore } = await import('../src/store.js');
+  const saved = await (await getStore()).getReclassAccounts();
+  assert.equal(saved.get(1027806).account_id, 6300);
+  assert.equal(saved.get(1027807).account_id, 6200);
+  assert.equal(saved.get(LEGAL).account_id, 6100);
+  assert.ok(!saved.get(1027999));
 });

@@ -850,16 +850,19 @@ ${problems.length ? '<span class="no">Fix the problems above first.</span>' : `<
 }
 
 function reclassAccountsCard(setup) {
-  const { categories = [], accounts, accountsError, saved = new Map() } = setup;
+  const { categories = [], accounts, accountsError, saved = new Map(), suggestions = new Map() } = setup;
+  const unsetWithGuess = categories.filter((c) => !saved.get(Number(c.id)) && suggestions.get(Number(c.id))).length;
   const rows = categories.map((c) => {
     const cur = saved.get(Number(c.id));
+    const guess = !cur && suggestions.get(Number(c.id));
     const choice = accounts
-      ? `<select name="account" required style="min-height:36px;max-width:320px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)"><option value="">Choose an expense account</option>${accounts.map((a) => `<option value="${esc(`${a.id}|${a.label}`)}"${cur && Number(cur.account_id) === Number(a.id) ? ' selected' : ''}>${esc(a.label)}</option>`).join('')}</select>`
+      ? `<select name="account" required style="min-height:36px;max-width:320px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)"><option value="">Choose an expense account</option>${accounts.map((a) => `<option value="${esc(`${a.id}|${a.label}`)}"${(cur && Number(cur.account_id) === Number(a.id)) || (guess && Number(guess.id) === Number(a.id)) ? ' selected' : ''}>${esc(a.label)}</option>`).join('')}</select>`
       : `<input name="account" required inputmode="numeric" placeholder="Campfire account ID" value="${esc(cur ? `${cur.account_id}${cur.account_label ? `|${cur.account_label}` : ''}` : '')}" style="min-height:36px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)">`;
-    return `<tr><td><b>${esc(c.name)}</b></td><td>${cur ? esc(cur.account_label || `Account ${cur.account_id}`) : '<span class="no">Not set</span>'}</td>
+    return `<tr><td><b>${esc(c.name)}</b></td><td>${cur ? esc(cur.account_label || `Account ${cur.account_id}`) : `<span class="no">Not set</span>${guess ? `<div class="small muted">Suggested: ${esc(guess.label)}</div>` : ''}`}</td>
 <td><form method="post" action="/settings/reclass-account" class="inline"><input type="hidden" name="category" value="${esc(c.id)}"><input type="hidden" name="category_name" value="${esc(c.name)}">${choice}<button class="btn sm" type="submit">Save</button></form></td></tr>`;
   }).join('');
   return `<div class="card" id="reclass-accounts"><div class="pad"><h2 style="margin:0">Reclass accounts</h2><p class="sub" style="margin:0">Where each Recharge Category's expenses go when a deal cost isn't billed back. The reclass entry debits this account and credits unbilled receivable.</p>
-${accountsError ? `<div class="banner bad">Couldn't list expense accounts from Campfire (${esc(accountsError)}). Enter the account's Campfire ID instead.</div>` : ''}</div>
+${accountsError ? `<div class="banner bad">Couldn't list expense accounts from Campfire (${esc(accountsError)}). Enter the account's Campfire ID instead.</div>` : ''}
+${unsetWithGuess ? `<form method="post" action="/settings/reclass-accounts/fill" class="inline"><button class="btn primary" type="submit">Fill by name (${unsetWithGuess})</button><span class="small muted">Sets each unset category to the expense account tagged with it or named the same. Review after.</span></form>` : ''}</div>
 ${rows ? `<div class="scroll"><table><thead><tr><th>Recharge category</th><th>Expense account</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="pad"><span class="small muted">No Recharge Category tags found.</span></div>'}</div>`;
 }

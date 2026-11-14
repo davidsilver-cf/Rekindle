@@ -153,3 +153,15 @@ export async function startReclass({ lines, accounts, config, store, api, user, 
   }
   return { ok: true, runs };
 }
+
+// Best-guess expense account for a Recharge Category: an account whose default
+// tags include the category, else one with the same name, else one whose name
+// contains it (or the reverse). Ties go to the first in the chart.
+const norm = (x) => String(x || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+export function matchAccount(category, accounts) {
+  const n = norm(category.name);
+  return accounts.find((a) => (a.tagIds || []).map(Number).includes(Number(category.id)))
+    || accounts.find((a) => norm(a.name) === n)
+    || (n.length >= 4 && accounts.find((a) => norm(a.name).includes(n) || (norm(a.name).length >= 4 && n.includes(norm(a.name)))))
+    || null;
+}
