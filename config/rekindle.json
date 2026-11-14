@@ -1,15 +1,12 @@
 {
   "_comment": "Rekindle setup for the David Silver - Rekindle test workspace. Mirrors the Tag Setup and Allocations tabs of the 'Rekindle – Bill ABC_261106 Test' sheet. IDs are Campfire IDs.",
-
   "unbilledAccountNumber": "13190",
-
   "tagGroups": {
     "deals": 46588,
     "billbackStatus": 46610,
     "billbackCustomer": 46612,
     "rechargeCategory": 46589
   },
-
   "billbackStatusTags": {
     "Pending": 1027943,
     "Bill Back": 1027944,
@@ -22,21 +19,29 @@
     "Reserved": 1027951,
     "Transferred": 1027942
   },
-
   "billingTypeField": "custom_field_defaultbillingtype",
-
   "deals": [
     {
       "dealsTag": "Deal XYZ",
       "dealsTagId": 1027801,
       "billingType": "Deal",
-      "customer": { "name": "Deal XYZ", "customerId": 22874410, "campfireId": "CUST-0000005", "billbackTagId": 1027957 }
+      "customer": {
+        "name": "Deal XYZ",
+        "customerId": 22874410,
+        "campfireId": "CUST-0000005",
+        "billbackTagId": 1027957
+      }
     },
     {
       "dealsTag": "Fund I",
       "dealsTagId": 1027964,
       "billingType": "Fund",
-      "customer": { "name": "Fund I", "customerId": 22874359, "campfireId": "CUST-0000001", "billbackTagId": 1027953 }
+      "customer": {
+        "name": "Fund I",
+        "customerId": 22874359,
+        "campfireId": "CUST-0000001",
+        "billbackTagId": 1027953
+      }
     },
     {
       "dealsTag": "Fund II",
@@ -48,13 +53,60 @@
       "dealsTag": "Fund II - Employees Only",
       "dealsTagId": 1028616,
       "billingType": "Fund",
-      "customer": { "name": "Fund II Employees Only", "customerId": 22874368, "campfireId": "CUST-0000004", "billbackTagId": 1027956 }
+      "customer": {
+        "name": "Fund II Employees Only",
+        "customerId": 22874368,
+        "campfireId": "CUST-0000004",
+        "billbackTagId": 1027956
+      }
     }
   ],
-
   "allocations": [
-    { "dealsTagId": 1027965, "customer": { "name": "Fund II Main", "customerId": 22874366, "campfireId": "CUST-0000002", "billbackTagId": 1027955 }, "percent": 80, "start": null, "end": null },
-    { "dealsTagId": 1027965, "customer": { "name": "Fund II Co-Invest", "customerId": 22874367, "campfireId": "CUST-0000003", "billbackTagId": 1027954 }, "percent": 15, "start": null, "end": null },
-    { "dealsTagId": 1027965, "customer": { "name": "Fund II Employees Only", "customerId": 22874368, "campfireId": "CUST-0000004", "billbackTagId": 1027956 }, "percent": 5, "start": null, "end": null }
-  ]
+    {
+      "dealsTagId": 1027965,
+      "customer": {
+        "name": "Fund II Main",
+        "customerId": 22874366,
+        "campfireId": "CUST-0000002",
+        "billbackTagId": 1027955
+      },
+      "percent": 80,
+      "start": null,
+      "end": null
+    },
+    {
+      "dealsTagId": 1027965,
+      "customer": {
+        "name": "Fund II Co-Invest",
+        "customerId": 22874367,
+        "campfireId": "CUST-0000003",
+        "billbackTagId": 1027954
+      },
+      "percent": 15,
+      "start": null,
+      "end": null
+    },
+    {
+      "dealsTagId": 1027965,
+      "customer": {
+        "name": "Fund II Employees Only",
+        "customerId": 22874368,
+        "campfireId": "CUST-0000004",
+        "billbackTagId": 1027956
+      },
+      "percent": 5,
+      "start": null,
+      "end": null
+    }
+  ],
+  "invoice": {
+    "_comment": "Branding for invoice PDFs. Leave a field empty to leave it off the PDF. fromName defaults to the Campfire entity on the bill.",
+    "fromName": null,
+    "fromAddress": [],
+    "remitTo": [],
+    "terms": null,
+    "termsDays": null,
+    "footer": "",
+    "accentColor": "#C2410C"
+  }
 }

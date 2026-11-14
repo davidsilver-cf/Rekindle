@@ -51,6 +51,8 @@ export function planLine(bill, line, config) {
     billId: bill.id,
     billNumber: bill.bill_number,
     billDate: bill.bill_date,
+    vendorName: (bill.vendor_name || '').replace(/\s*\(VEN-\d+\)\s*$/, '') || null,
+    entityName: bill.entity_name || null,
     lineId: line.id,
     description: line.description,
     amountCents: toCents(line.amount),

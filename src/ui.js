@@ -371,7 +371,7 @@ export function invoicesPage(ctx, selected) {
   const preview = pick
     ? `<div class="card side pad" style="gap:16px"><div><span class="small muted">Invoice preview</span><div style="font-size:18px;font-weight:700">${esc(pick.customer.name)}</div></div>
 <table><thead><tr><th style="padding-left:0">Description</th><th class="num" style="padding-right:0">Amount</th></tr></thead><tbody>${lineRows}</tbody>
-<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr></tfoot></table></div>`
+<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr></tfoot></table><a class="btn primary" href="/invoices/pdf?customer=${encodeURIComponent(pick.customer.name)}" target="_blank" rel="noopener">Download PDF (draft)</a></div>`
     : '';
 
   return layout({

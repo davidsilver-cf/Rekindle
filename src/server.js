@@ -25,6 +25,7 @@ import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, i
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { getStore } from './store.js';
 import { dealGroups, withStatus, canDecide } from './approvals.js';
+import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
   '/static/queue.js': { file: '../public/queue.js', type: 'text/javascript; charset=utf-8' },
@@ -226,6 +227,22 @@ async function handle(req, res) {
   if (req.method === 'GET' && SCREENS[url.pathname]) {
     if (!user) return redirect(res, '/login');
     return html(res, SCREENS[url.pathname](await screenContext(user), url));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/invoices/pdf') {
+    if (!user) return redirect(res, '/login');
+    const plan = planBills(await loadBills(), config);
+    const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
+    if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
+    const pdf = buildInvoicePdf({ customer, plan, branding: config.invoice || {}, invoice: { draft: true } });
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${invoiceFilename(customer.customer.name)}"`,
+      'Content-Length': pdf.length,
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, no-store',
+    });
+    return res.end(pdf);
   }
 
   if (req.method === 'POST' && url.pathname === '/deals/approver') {

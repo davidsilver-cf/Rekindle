@@ -122,3 +122,17 @@ test('Google sign-in rules', () => {
   assert.throws(() => readIdToken(tok({ ...good, email_verified: false }), { nonce: 'n1' }), /verified/);
   assert.throws(() => readIdToken(tok({ ...good, exp: 1 }), { nonce: 'n1' }), /expired/);
 });
+
+test('invoice PDF downloads for a customer in the run', async () => {
+  const admin = as('david@campfire.ai');
+  const r = await get('/invoices/pdf?customer=Fund%20II%20Employees%20Only', admin);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'application/pdf');
+  assert.match(r.headers.get('content-disposition'), /Invoice-Fund-II-Employees-Only-DRAFT\.pdf/);
+  const buf = Buffer.from(await r.arrayBuffer());
+  assert.equal(buf.subarray(0, 5).toString(), '%PDF-');
+  assert.match(buf.subarray(-6).toString(), /%%EOF/);
+  assert.equal((await get('/invoices/pdf?customer=Nobody', admin)).status, 404);
+  assert.equal((await get('/invoices/pdf?customer=Fund%20I')).status, 303); // needs sign-in
+  assert.match(await (await get('/invoices?customer=Fund%20I', admin)).text(), /Download PDF/);
+});
