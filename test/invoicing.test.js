@@ -130,6 +130,9 @@ test('a customer fed by several deals can be invoiced for the approved ones; the
   await post('/approvals/decide', { deal: '1028616', fingerprint: m[1], decision: 'approved' });
   const inv = await (await get('/invoices')).text();
   assert.match(inv, /Approved lines ready/);
+  const preview = await (await get('/invoices?customer=Fund%20II%20Employees%20Only')).text();
+  assert.match(preview, /Pending approval/);
+  assert.match(preview, /<td style="padding-left:0">Total due<\/td><td class="num" style="padding-right:0">\$[\d,.]+<\/td><\/tr><tr><td style="padding-left:0;font-weight:400" class="muted">Amount pending approval<\/td>/);
   assert.match(inv, /Not on this invoice: \$[\d,.]+ waiting for approval · <a href="\/approvals#deal-1027965">Fund II<\/a>/);
   const confirm = await (await post('/invoices/confirm', { customer: 'Fund II Employees Only' })).text();
   assert.match(confirm, /Only lines from approved deals are invoiced/);

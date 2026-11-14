@@ -295,7 +295,7 @@ function invoiceView(ctx, group) {
   const ready = customersFor(ctx.plan, (l) => inGroup(l) && approved.has(l.lineId));
   const held = customersFor(ctx.plan, (l) => inGroup(l) && !approved.has(l.lineId));
   const byId = new Map(ctx.plan.lines.map((l) => [l.lineId, l]));
-  const waiting = new Map(held.map((c) => [c.customer.name, { cents: c.cents, deals: [...new Set(c.sources.map((x) => byId.get(x.lineId)?.dealsTag).filter(Boolean))].sort() }]));
+  const waiting = new Map(held.map((c) => [c.customer.name, { cents: c.cents, sources: c.sources, deals: [...new Set(c.sources.map((x) => byId.get(x.lineId)?.dealsTag).filter(Boolean))].sort() }]));
   // Customers with nothing approved yet still get a row, with nothing to invoice.
   const customers = [...ready, ...held.filter((c) => !ready.some((r) => r.customer.name === c.customer.name)).map((c) => ({ customer: c.customer, cents: 0, sources: [], categories: new Map() }))];
   const plan = { ...ctx.plan, customers, totals: { ...ctx.plan.totals, billedCents: ready.reduce((t, c) => t + c.cents, 0) } };

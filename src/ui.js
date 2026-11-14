@@ -558,7 +558,7 @@ export function invoicesPage(ctx, selected, flash = null) {
   const rows = plan.customers
     .map((c) => {
       const r = ctx.readiness?.get(c.customer.name) || { ready: false, waitingOn: [] };
-      const deals = [...new Set(c.sources.map((s) => linesById.get(s.lineId)?.dealsTag))];
+      const deals = [...new Set([...c.sources.map((s) => linesById.get(s.lineId)?.dealsTag), ...(ctx.waiting?.get(c.customer.name)?.deals || [])].filter(Boolean))];
       const linked = Boolean(c.customer.customerId);
       let status;
       const w = ctx.waiting?.get(c.customer.name);
@@ -577,20 +577,22 @@ export function invoicesPage(ctx, selected, flash = null) {
     })
     .join('');
 
+  // Preview: every line for this customer; lines from deals not yet approved
+  // are marked and left out of Total due.
+  const pendingFor = pick ? ctx.waiting?.get(pick.customer.name) : null;
+  const previewLine = (s, pending) => {
+    const l = linesById.get(s.lineId);
+    const label = s.percent < 100 ? `${esc(l.rechargeCategory ?? 'Other')} · ${esc(l.dealsTag)} allocation (${esc(s.percent)}%)` : `${esc(l.rechargeCategory ?? 'Other')} · ${esc(l.dealsTag)}`;
+    const note = s.percent < 100 ? `${esc(s.percent)}% of ${usd(l.amountCents)} · ${esc(l.billNumber)}` : `${esc(l.description)} · ${esc(l.billNumber)}`;
+    return `<tr${pending ? ' style="opacity:.75"' : ''}><td style="padding-left:0;white-space:normal">${label}${pending ? ` ${pill('Pending approval', 'background:var(--warn-tint);color:var(--warn)')}` : ''}<div class="small muted">${note}</div></td><td class="num" style="padding-right:0">${pending ? `<span class="muted">${usd(s.cents)}</span>` : usd(s.cents)}</td></tr>`;
+  };
   const lineRows = pick
-    ? pick.sources
-        .map((s) => {
-          const l = linesById.get(s.lineId);
-          const label = s.percent < 100 ? `${esc(l.rechargeCategory ?? 'Other')} · ${esc(l.dealsTag)} allocation (${esc(s.percent)}%)` : `${esc(l.rechargeCategory ?? 'Other')} · ${esc(l.dealsTag)}`;
-          const note = s.percent < 100 ? `${esc(s.percent)}% of ${usd(l.amountCents)} · ${esc(l.billNumber)}` : `${esc(l.description)} · ${esc(l.billNumber)}`;
-          return `<tr><td style="padding-left:0;white-space:normal">${label}<div class="small muted">${note}</div></td><td class="num" style="padding-right:0">${usd(s.cents)}</td></tr>`;
-        })
-        .join('')
+    ? [...pick.sources.map((s) => previewLine(s, false)), ...(pendingFor?.sources || []).map((s) => previewLine(s, true))].join('')
     : '';
   const preview = pick
     ? `<div class="card side pad" style="gap:16px"><div><span class="small muted">Invoice preview</span><div style="font-size:18px;font-weight:700">${esc(pick.customer.name)}</div></div>
 <table><thead><tr><th style="padding-left:0">Description</th><th class="num" style="padding-right:0">Amount</th></tr></thead><tbody>${lineRows}</tbody>
-<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr></tfoot></table><a class="btn" href="/invoices/pdf?customer=${encodeURIComponent(pick.customer.name)}${keep}" target="_blank" rel="noopener">Download PDF (draft)</a></div>`
+<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr>${pendingFor ? `<tr><td style="padding-left:0;font-weight:400" class="muted">Amount pending approval</td><td class="num muted" style="padding-right:0;font-weight:400">${usd(pendingFor.cents)}</td></tr>` : ''}</tfoot></table>${pendingFor ? `<p class="small muted" style="margin:0">Total due is what this invoice bills now. Lines pending approval stay for a later invoice once ${waitingLinks(ctx, pendingFor.deals)} ${pendingFor.deals.length === 1 ? 'is' : 'are'} approved.</p>` : ''}${pick.cents > 0 ? `<a class="btn" href="/invoices/pdf?customer=${encodeURIComponent(pick.customer.name)}${keep}" target="_blank" rel="noopener">Download PDF (draft)</a>` : ''}</div>`
     : '';
 
   let why = '';
