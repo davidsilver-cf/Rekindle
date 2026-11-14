@@ -7,14 +7,16 @@ import { queuePage, dealsPage, approvalsPage, invoicesPage, esc } from '../src/u
 const load = async (p) => JSON.parse(await readFile(new URL(p, import.meta.url), 'utf8'));
 const config = await load('../config/rekindle.json');
 const bills = await load('./fixtures/ABC_261106.json');
-const ctx = (b = bills) => ({ config, plan: planBills(b, config), demo: true, write: false, loadedAt: 'now' });
+import { effectiveConfig, validateSetup } from '../src/setup.js';
+const live = effectiveConfig(config);
+const ctx = (b = bills) => ({ config: live, plan: planBills(b, live), demo: true, write: false, loadedAt: 'now' });
 
 test('screens show the expected totals', () => {
   assert.match(queuePage(ctx()), /\$32,000\.00/);
   const approvals = approvalsPage(ctx());
   for (const amt of ['$10,000.00', '$9,600.00', '$8,000.00', '$2,600.00', '$1,800.00']) assert.ok(approvals.includes(amt), amt);
   assert.match(invoicesPage(ctx(), 'Fund II Employees Only'), /\$600\.00/);
-  assert.match(dealsPage(ctx(), 'Fund II'), /Total 100% · OK/);
+  assert.match(dealsPage(ctx(), 'Fund II'), /Active total 100% · OK/);
 });
 
 test('values from Campfire are escaped', () => {

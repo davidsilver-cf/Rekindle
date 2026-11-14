@@ -70,6 +70,9 @@ export function planLine(bill, line, config) {
 
   const deal = config.deals.find((d) => d.dealsTagId === dealTag.id);
   if (!deal) return { ...base, exception: `Deals tag "${dealTag.name}" has no Tag Setup row` };
+  if (!deal.billingType && !line[config.billingTypeField]) {
+    return { ...base, exception: `"${dealTag.name}" needs setup on the Deals screen` };
+  }
 
   // Billing type: the line's value wins; Rekindle only fills a blank.
   const lineType = line[config.billingTypeField] || null;

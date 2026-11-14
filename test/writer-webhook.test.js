@@ -103,7 +103,7 @@ test('stamping selected lines only changes those lines', async () => {
     return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   try {
-    const { results } = await processBills(structuredClone(bills), { lineIds: new Set([9190922]), log: () => {} });
+    const { results } = await processBills(structuredClone(bills), { lineIds: new Set([9190922]), log: () => {}, config });
     assert.equal(results.length, 1);
     assert.deepEqual(results[0].changes.map((c) => c.lineId), [9190922]);
   } finally {

@@ -14,12 +14,24 @@ FROM approvals ORDER BY deals_tag_id, created_at DESC, id DESC`,
 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
   audit: 'INSERT INTO audit_log (actor_email, action, detail) VALUES ($1, $2, $3)',
   recentAudit: 'SELECT at, actor_email, action, detail FROM audit_log ORDER BY at DESC, id DESC LIMIT $1',
+  setups: 'SELECT deals_tag_id, billing_type, customer FROM deal_settings WHERE billing_type IS NOT NULL',
+  setSetup: `INSERT INTO deal_settings (deals_tag_id, deals_tag_name, billing_type, customer, updated_by, updated_at)
+VALUES ($1, $2, $3, $4, $5, now())
+ON CONFLICT (deals_tag_id) DO UPDATE SET deals_tag_name = EXCLUDED.deals_tag_name, billing_type = EXCLUDED.billing_type,
+  customer = EXCLUDED.customer, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+  owners: `SELECT deals_tag_id, customer, percent, to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date
+FROM allocation_owners ORDER BY deals_tag_id, start_date NULLS FIRST, percent DESC, id`,
+  deleteOwners: 'DELETE FROM allocation_owners WHERE deals_tag_id = $1',
+  insertOwner: `INSERT INTO allocation_owners (deals_tag_id, customer, percent, start_date, end_date, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6)`,
 };
 
 export function memoryStore() {
   const approvers = new Map();
   const decisions = [];
   const log = [];
+  const setups = new Map();
+  const owners = [];
   let seq = 0;
   return {
     kind: 'memory',
@@ -42,6 +54,14 @@ export function memoryStore() {
     },
     async audit(actor, action, detail = {}) { log.push({ at: new Date(), actor_email: actor, action, detail }); },
     async recentAudit(limit = 50) { return log.slice(-limit).reverse(); },
+    async getSetups() { return new Map([...setups].map(([k, v]) => [k, { ...v }])); },
+    async getOwners() { return owners.map((o) => ({ ...o })); },
+    async saveDealSetup(dealsTagId, name, setup, ownerRows, actor) {
+      setups.set(dealsTagId, { billingType: setup.billingType, customer: setup.customer });
+      for (let i = owners.length - 1; i >= 0; i--) if (owners[i].dealsTagId === dealsTagId) owners.splice(i, 1);
+      for (const o of ownerRows) owners.push({ dealsTagId, ...o });
+      log.push({ at: new Date(), actor_email: actor, action: 'set_deal_setup', detail: { dealsTagId, name, ...setup, owners: ownerRows } });
+    },
   };
 }
 
@@ -79,6 +99,32 @@ export async function postgresStore(connectionString) {
     async recentAudit(limit = 50) {
       const { rows } = await q(SQL.recentAudit, [limit]);
       return rows;
+    },
+    async getSetups() {
+      const { rows } = await q(SQL.setups);
+      return new Map(rows.map((r) => [Number(r.deals_tag_id), { billingType: r.billing_type, customer: r.customer }]));
+    },
+    async getOwners() {
+      const { rows } = await q(SQL.owners);
+      return rows.map((r) => ({ dealsTagId: Number(r.deals_tag_id), customer: r.customer, percent: Number(r.percent), start: r.start_date, end: r.end_date }));
+    },
+    async saveDealSetup(dealsTagId, name, setup, ownerRows, actor) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(SQL.setSetup, [dealsTagId, name, setup.billingType, setup.customer ? JSON.stringify(setup.customer) : null, actor]);
+        await client.query(SQL.deleteOwners, [dealsTagId]);
+        for (const o of ownerRows) {
+          await client.query(SQL.insertOwner, [dealsTagId, JSON.stringify(o.customer), o.percent, o.start, o.end, actor]);
+        }
+        await client.query(SQL.audit, [actor, 'set_deal_setup', JSON.stringify({ dealsTagId, name, ...setup, owners: ownerRows })]);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     },
   };
 }

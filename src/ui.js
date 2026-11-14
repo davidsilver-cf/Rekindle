@@ -81,6 +81,8 @@ a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:#D6D
 .decide .row{display:flex;gap:8px;flex-wrap:wrap}
 .who{display:flex;flex-direction:column;gap:2px}
 .btn.sm{min-height:36px;padding:0 12px;font-size:13px}
+table.owners td{padding:6px 8px}
+table.owners select,table.owners input{min-height:36px;padding:0 8px;border:1px solid #D6D1C9;border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:var(--ink)}
 .dealrow b{display:block;font-size:14px}.dealrow span{font-size:12px;color:var(--quiet)}
 `;
 
@@ -108,7 +110,10 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
 }
 
 function customerCell(l) {
-  if (l.exception) return `<span class="no">${esc(l.exception)}</span>`;
+  if (l.exception) {
+    const fix = /needs setup|Tag Setup row/.test(l.exception) && l.dealsTag ? ` <a href="/deals?deal=${encodeURIComponent(l.dealsTag)}">Set up</a>` : '';
+    return `<span class="no">${esc(l.exception)}</span>${fix}`;
+  }
   if (l.billingType === 'Expense') return '<span class="muted">Not billed back · reclass</span>';
   if (l.billingType === 'Allocation') {
     return `<a href="/deals?deal=${encodeURIComponent(l.dealsTag)}">Split ${l.billTo.map((b) => b.percent).join(' / ')}</a>`;
@@ -224,42 +229,102 @@ function approverCard(ctx, deal) {
 ${form}${!ctx.admin ? '<p class="sub" style="margin:0">Only admins can change approvers.</p>' : ''}</div>`;
 }
 
-export function dealsPage(ctx, selected) {
-  const { config } = ctx;
-  const deal = config.deals.find((d) => d.dealsTag === selected) || config.deals.find((d) => d.billingType === 'Allocation') || config.deals[0];
-  const list = config.deals
+const SETUP_SOURCE = {
+  rekindle: 'Set up in Rekindle',
+  file: 'From the starter setup file; saving here takes over',
+  none: 'Not set up yet',
+};
+
+function setupForm(ctx, deal, owners, draft) {
+  const customers = ctx.config.billbackCustomers || [];
+  const type = draft?.billingType ?? deal.billingType ?? '';
+  const custId = String(draft?.customerTagId ?? deal.customer?.billbackTagId ?? '');
+  const rows = draft
+    ? draft.owners.map((o) => ({ customerTagId: String(o.customerTagId || ''), percent: o.percent || '', start: o.start || '', end: o.end || '' }))
+    : owners.map((o) => ({ customerTagId: String(o.customer?.billbackTagId ?? ''), percent: String(o.percent), start: o.start || '', end: o.end || '' }));
+  while (rows.length < owners.length + 3 && rows.length < 20) rows.push({ customerTagId: '', percent: '', start: '', end: '' });
+
+  const custOptions = (selected) => `<option value="">Choose…</option>${customers
+    .map((c) => `<option value="${esc(c.billbackTagId)}"${String(c.billbackTagId) === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}`;
+  const typeOptions = ['Deal', 'Fund', 'Allocation', 'Expense']
+    .map((t) => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`).join('');
+  const ownerRows = rows
+    .map((o, i) => `<tr><td><select name="owner_${i}_customer" aria-label="Owner ${i + 1} customer">${custOptions(o.customerTagId)}</select></td>
+<td><input name="owner_${i}_percent" type="number" min="0" max="100" step="0.0001" inputmode="decimal" value="${esc(o.percent)}" aria-label="Owner ${i + 1} share percent" style="width:90px"></td>
+<td><input name="owner_${i}_start" type="date" value="${esc(o.start)}" aria-label="Owner ${i + 1} effective from"></td>
+<td><input name="owner_${i}_end" type="date" value="${esc(o.end)}" aria-label="Owner ${i + 1} effective to"></td></tr>`)
+    .join('');
+
+  return `<form class="card pad setup" method="post" action="/deals/setup" style="gap:16px"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}">
+<h2>Setup</h2>
+<div class="inline">
+<label class="filter"><span>Billing type</span><select name="billingType" required>${type ? '' : '<option value="" selected>Choose…</option>'}${typeOptions}</select></label>
+<label class="filter grow"><span>Billed to (Deal or Fund)</span><select name="customer">${custOptions(custId)}</select></label>
+</div>
+<p class="sub" style="margin:0"><b>Deal</b> and <b>Fund</b> bill 100% to one customer. Several deals can bill the same fund. <b>Allocation</b> splits across the owners below. <b>Expense</b> isn't billed back.</p>
+<div><h2 style="font-size:14px;margin-bottom:8px">Owners (Allocation only)</h2>
+<div class="scroll"><table class="owners"><thead><tr><th>Billback customer</th><th>Share %</th><th>Effective from</th><th>Effective to</th></tr></thead><tbody>${ownerRows}</tbody></table></div>
+<p class="sub" style="margin:8px 0 0">Leave dates blank for "from the start" and "still active". To change ownership, put an end date on the old rows and add new rows starting the next day. Clear a row to remove it.</p></div>
+${customers.length ? '' : '<div class="banner bad">No Billback Customer tags found in Campfire. Create one per customer first.</div>'}
+<div><button class="btn primary" type="submit">Save setup</button></div></form>`;
+}
+
+export function dealsPage(ctx, selected, flash = null, draft = null) {
+  const { config, plan } = ctx;
+  const deals = config.deals;
+  if (!deals.length) {
+    return layout({ active: 'deals', title: 'Deals & allocations', ctx, body: '<h1>Deals &amp; allocations</h1><p class="sub">No Deals tags found in Campfire yet.</p>' });
+  }
+  const pendingBy = new Map();
+  for (const l of plan.lines) if (l.dealsTag) pendingBy.set(l.dealsTag, (pendingBy.get(l.dealsTag) || 0) + 1);
+  const needs = deals.filter((d) => !d.billingType);
+  const deal = deals.find((d) => d.dealsTag === selected) || needs[0] || deals[0];
+
+  const list = deals
     .map((d) => {
-      const summary = d.billingType === 'Allocation'
-        ? `Allocation · ${config.allocations.filter((a) => a.dealsTagId === d.dealsTagId).length} owners`
-        : `${d.billingType} · bills ${d.customer?.name ?? '—'}`;
-      return `<a class="dealrow${d === deal ? ' on' : ''}" href="/deals?deal=${encodeURIComponent(d.dealsTag)}"${d === deal ? ' aria-current="true"' : ''}><b>${esc(d.dealsTag)}</b><span>${esc(summary)}</span></a>`;
+      const n = pendingBy.get(d.dealsTag) || 0;
+      const summary = !d.billingType
+        ? 'Needs setup'
+        : d.billingType === 'Allocation'
+          ? `Allocation · ${config.allocations.filter((a) => a.dealsTagId === d.dealsTagId).length} owners`
+          : d.billingType === 'Expense' ? 'Expense · not billed back' : `${d.billingType} · bills ${d.customer?.name ?? '—'}`;
+      return `<a class="dealrow${d === deal ? ' on' : ''}" href="/deals?deal=${encodeURIComponent(d.dealsTag)}"${d === deal ? ' aria-current="true"' : ''}><b>${esc(d.dealsTag)}</b><span${!d.billingType ? ' style="color:#991B1B;font-weight:600"' : ''}>${esc(summary)}${n ? ` · ${n} pending line${n === 1 ? '' : 's'}` : ''}</span></a>`;
     })
     .join('');
 
   const owners = config.allocations.filter((a) => a.dealsTagId === deal.dealsTagId);
   const active = owners.filter((a) => !a.end);
-  const total = active.reduce((s, a) => s + a.percent, 0);
+  const total = Math.round(active.reduce((s, a) => s + a.percent, 0) * 10000) / 10000;
   const ownerRows = owners
-    .map((a) => `<tr><td>${esc(a.customer.name)}</td><td class="muted">${esc(a.customer.campfireId)}</td><td class="num"><b>${esc(a.percent)}%</b></td><td>${esc(a.start || 'From the start')}</td><td>${esc(a.end || 'Active')}</td></tr>`)
+    .map((a) => `<tr><td>${esc(a.customer?.name)}</td><td class="num"><b>${esc(a.percent)}%</b></td><td>${esc(a.start || 'From the start')}</td><td>${esc(a.end || 'Active')}</td></tr>`)
     .join('');
 
-  const detail = deal.billingType === 'Allocation'
-    ? `<div class="card"><div class="cardhead"><div style="display:flex;gap:10px;align-items:center"><h2>Owners</h2>${Math.abs(total - 100) < 1e-9 ? pill('Total 100% · OK', 'background:var(--good-tint);color:var(--good)') : pill(`Total ${total}% · fix`, 'background:#FDECEC;color:#991B1B')}</div></div>
-<div class="scroll"><table><thead><tr><th>Billback customer</th><th>Campfire ID</th><th class="num">Share</th><th>Effective from</th><th>Effective to</th></tr></thead><tbody>${ownerRows}</tbody></table></div>
-<p class="sub" style="padding:0 16px 14px">Bills use the split in force on their bill date. Leftover cents go to the largest share.</p></div>`
-    : `<div class="card pad"><h2>Billed to</h2><div style="font-size:15px"><b>${esc(deal.customer?.name ?? 'Not set')}</b> <span class="muted">${esc(deal.customer?.campfireId ?? '')}</span></div><p class="sub" style="margin:0">Every Pending line tagged ${esc(deal.dealsTag)} is billed 100% to this customer.</p></div>`;
+  let summary = '';
+  if (deal.billingType === 'Allocation') {
+    summary = `<div class="card"><div class="cardhead"><div style="display:flex;gap:10px;align-items:center"><h2>Owners</h2>${Math.abs(total - 100) < 1e-9 ? pill('Active total 100% · OK', 'background:var(--good-tint);color:var(--good)') : pill(`Active total ${total}% · fix`, 'background:#FDECEC;color:#991B1B')}</div></div>
+<div class="scroll"><table><thead><tr><th>Billback customer</th><th class="num">Share</th><th>Effective from</th><th>Effective to</th></tr></thead><tbody>${ownerRows || '<tr><td colspan="4" class="muted">No owners yet.</td></tr>'}</tbody></table></div>
+<p class="sub" style="padding:0 16px 14px">Bills use the split in force on their bill date. Leftover cents go to the largest share.</p></div>`;
+  } else if (deal.billingType === 'Deal' || deal.billingType === 'Fund') {
+    summary = `<div class="card pad"><h2>Billed to</h2><div style="font-size:15px"><b>${esc(deal.customer?.name ?? 'Not set')}</b></div><p class="sub" style="margin:0">Every Pending line tagged ${esc(deal.dealsTag)} is billed 100% to this customer.</p></div>`;
+  } else if (deal.billingType === 'Expense') {
+    summary = '<div class="card pad"><h2>Not billed back</h2><p class="sub" style="margin:0">Lines tagged with this deal are flagged for reclass instead of invoiced.</p></div>';
+  } else {
+    summary = `<div class="banner bad"><b>${esc(deal.dealsTag)} isn't set up.</b> Its pending lines are held as exceptions until it has a billing type${ctx.admin ? '' : '. Ask an admin to set it up'}.</div>`;
+  }
 
+  const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}">${esc(flash.text)}</div>` : '';
   return layout({
     active: 'deals', title: 'Deals & allocations', ctx,
-    body: `<div class="head"><div><h1>Deals &amp; allocations</h1><p class="sub">Each deal is a Deals tag in Campfire. Its billing type decides who gets invoiced.</p></div>
-<button class="btn" type="button" disabled title="Editing needs the database step">Edit setup (coming)</button></div>
-<div class="split"><div class="card side" style="overflow:hidden"><div class="cardhead"><span class="small muted"><b>${config.deals.length} deals</b></span></div>${list}</div>
+    body: `${flashHtml}<div class="head"><div><h1>Deals &amp; allocations</h1><p class="sub">Every Deals tag in ${ctx.demo ? 'the demo data' : 'Campfire'}. Its billing type decides who gets invoiced.</p></div>
+${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setup`, 'background:#FDECEC;color:#991B1B;font-size:13px;padding:6px 12px') : pill('All deals set up', 'background:var(--good-tint);color:var(--good);font-size:13px;padding:6px 12px')}</div>
+<div class="split"><div class="card side" style="overflow:hidden"><div class="cardhead"><span class="small muted"><b>${deals.length} deals</b></span></div>${list}</div>
 <div class="wide" style="display:flex;flex-direction:column;gap:16px">
 <div class="card pad" style="flex-direction:row;flex-wrap:wrap;gap:32px">
 <div><span class="small muted">Deal</span><div style="font-size:20px;font-weight:700">${esc(deal.dealsTag)}</div></div>
-<div><span class="small muted">Billing type</span><div>${typePill(deal.billingType)}</div></div>
-<div><span class="small muted">Campfire Deals tag</span><div>ID ${esc(deal.dealsTagId)}</div></div></div>
-${approverCard(ctx, deal)}${detail}</div></div>`,
+<div><span class="small muted">Billing type</span><div>${deal.billingType ? typePill(deal.billingType) : pill('Needs setup', 'background:#FDECEC;color:#991B1B')}</div></div>
+<div><span class="small muted">Setup</span><div class="small">${esc(SETUP_SOURCE[deal.source] || '')}</div></div>
+<div><span class="small muted">Campfire Deals tag</span><div class="small">ID ${esc(deal.dealsTagId)}</div></div></div>
+${summary}${ctx.admin ? setupForm(ctx, deal, owners, draft) : ''}${approverCard(ctx, deal)}</div></div>`,
   });
 }
 
@@ -268,7 +333,7 @@ function checks(ctx) {
   const ex = plan.lines.filter((l) => l.exception);
   return [
     [!plan.lines.some((l) => l.exception?.startsWith('No Deals tag')), 'Every line has a Deals tag'],
-    [!plan.lines.some((l) => /Tag Setup row/.test(l.exception || '')), 'Every Deals tag has a setup row'],
+    [!plan.lines.some((l) => /Tag Setup row|needs setup/.test(l.exception || '')), 'Every deal is set up'],
     [!plan.lines.some((l) => /not 100%|no owners/.test(l.exception || '')), 'Every allocation totals 100%'],
     [plan.totals.ties, 'Run total ties to pending lines'],
     [ex.length === 0, ex.length ? `${ex.length} exception${ex.length === 1 ? '' : 's'} held back` : 'No exceptions'],

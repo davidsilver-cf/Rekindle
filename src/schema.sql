@@ -32,3 +32,28 @@ CREATE TABLE IF NOT EXISTS audit_log (
   action      text NOT NULL,
   detail      jsonb NOT NULL DEFAULT '{}'::jsonb
 );
+
+-- Deal setup edited on the Deals screen (added after the first release).
+ALTER TABLE deal_settings ADD COLUMN IF NOT EXISTS deals_tag_name text;
+ALTER TABLE deal_settings ADD COLUMN IF NOT EXISTS billing_type text;
+ALTER TABLE deal_settings ADD COLUMN IF NOT EXISTS customer jsonb;
+DO $$ BEGIN
+  ALTER TABLE deal_settings ADD CONSTRAINT deal_settings_billing_type_check
+    CHECK (billing_type IS NULL OR billing_type IN ('Deal', 'Fund', 'Allocation', 'Expense'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Owners of Allocation deals, effective-dated. Saving a deal's owners
+-- replaces its rows; the audit log keeps what changed.
+CREATE TABLE IF NOT EXISTS allocation_owners (
+  id           bigserial PRIMARY KEY,
+  deals_tag_id bigint NOT NULL,
+  customer     jsonb NOT NULL,
+  percent      numeric(9,4) NOT NULL CHECK (percent > 0 AND percent <= 100),
+  start_date   date,
+  end_date     date,
+  updated_by   text NOT NULL,
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CHECK (start_date IS NULL OR end_date IS NULL OR start_date <= end_date)
+);
+CREATE INDEX IF NOT EXISTS allocation_owners_deal_idx ON allocation_owners (deals_tag_id);

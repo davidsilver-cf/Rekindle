@@ -19,7 +19,8 @@ import { processBills } from './process.js';
 import { planBills } from './engine.js';
 import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
-import { config, writeEnabled } from './config.js';
+import { loadConfig, writeEnabled, demoMode } from './config.js';
+import { validateSetup } from './setup.js';
 import { queuePage, dealsPage, approvalsPage, invoicesPage, loginPage, readFilters } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
@@ -34,8 +35,6 @@ const BILL_TOPICS = new Set(['Bill.created', 'Bill.updated']);
 const OAUTH_COOKIE = 'rekindle_oauth';
 const EMAIL_RE = /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/;
 
-// Demo mode: no API key yet, or explicitly asked for. Uses the test bill in the repo.
-const demoMode = () => process.env.REKINDLE_DEMO === 'true' || !process.env.CAMPFIRE_API_KEY;
 
 async function loadBills(q) {
   if (demoMode()) {
@@ -118,7 +117,8 @@ async function handleWebhook(req, res) {
 
 async function screenContext(user) {
   const store = await getStore();
-  const plan = planBills(await loadBills(), config);
+  const [config, bills] = await Promise.all([loadConfig(), loadBills()]);
+  const plan = planBills(bills, config);
   const [approvers, decisions] = await Promise.all([store.getApprovers(), store.latestDecisions()]);
   const groups = withStatus(dealGroups(plan, config), approvers, decisions).map((g) => ({ ...g, canDecide: canDecide(user, g) }));
   return {
@@ -150,7 +150,7 @@ const SCREENS = {
     }
     return queuePage(ctx, flash, readFilters(s));
   },
-  '/deals': (ctx, url) => dealsPage(ctx, url.searchParams.get('deal')),
+  '/deals': (ctx, url) => dealsPage(ctx, url.searchParams.get('deal'), url.searchParams.has('saved') ? { ok: true, text: 'Deal setup saved. The queue and approvals use it right away.' } : null),
   '/approvals': (ctx, url) => {
     const r = url.searchParams.get('result');
     const flash = {
@@ -231,7 +231,8 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/invoices/pdf') {
     if (!user) return redirect(res, '/login');
-    const plan = planBills(await loadBills(), config);
+    const [config, bills] = await Promise.all([loadConfig(), loadBills()]);
+    const plan = planBills(bills, config);
     const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
     if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
     const pdf = buildInvoicePdf({ customer, plan, branding: config.invoice || {}, invoice: { draft: true } });
@@ -245,10 +246,35 @@ async function handle(req, res) {
     return res.end(pdf);
   }
 
+  if (req.method === 'POST' && url.pathname === '/deals/setup') {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can change deal setup.');
+    const form = new URLSearchParams(await readBody(req));
+    const config = await loadConfig();
+    const deal = config.deals.find((d) => d.dealsTagId === Number(form.get('deal')));
+    if (!deal) return send(res, 400, 'Unknown deal.');
+    const owners = [];
+    for (let i = 0; i < 20; i++) {
+      if (!form.has(`owner_${i}_customer`)) continue;
+      owners.push({
+        customerTagId: form.get(`owner_${i}_customer`), percent: form.get(`owner_${i}_percent`),
+        start: form.get(`owner_${i}_start`), end: form.get(`owner_${i}_end`),
+      });
+    }
+    const result = validateSetup({ billingType: form.get('billingType'), customerTagId: form.get('customer'), owners }, config.billbackCustomers);
+    if (result.errors.length) {
+      return html(res, dealsPage(await screenContext(user), deal.dealsTag, { ok: false, text: result.errors.join(' ') }, { billingType: form.get('billingType'), customerTagId: form.get('customer'), owners }), 400);
+    }
+    const store = await getStore();
+    await store.saveDealSetup(deal.dealsTagId, deal.dealsTag, result.setup, result.owners, user.email);
+    return redirect(res, `/deals?deal=${encodeURIComponent(deal.dealsTag)}&saved=1`);
+  }
+
   if (req.method === 'POST' && url.pathname === '/deals/approver') {
     if (!user) return redirect(res, '/login');
     if (!isAdmin(user)) return send(res, 403, 'Only admins can change approvers.');
     const form = new URLSearchParams(await readBody(req));
+    const config = await loadConfig();
     const deal = config.deals.find((d) => d.dealsTagId === Number(form.get('deal')));
     if (!deal) return send(res, 400, 'Unknown deal.');
     const email = (form.get('email') || '').trim().toLowerCase();

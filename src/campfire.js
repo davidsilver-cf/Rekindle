@@ -59,6 +59,19 @@ export async function listBills({ status = 'open', startDate, endDate, entity, q
   return all;
 }
 
+// Active tags in one tag group (e.g. Deals, Billback Customer), paged.
+export async function listTags(group) {
+  const limit = 200;
+  const all = [];
+  for (let offset = 0; offset < 20_000; offset += limit) {
+    const page = await request('/coa/api/tag', { group, limit, offset });
+    const rows = Array.isArray(page) ? page : page.results || [];
+    all.push(...rows.filter((t) => !t.is_deleted && t.is_active !== false));
+    if (rows.length < limit) break;
+  }
+  return all;
+}
+
 export function getBill(id) {
   return request(`/coa/api/v1/bill/${id}`);
 }
