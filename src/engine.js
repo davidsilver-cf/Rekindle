@@ -197,3 +197,23 @@ export function planBills(bills, config, { invoiced = new Set() } = {}) {
     },
   };
 }
+
+// What each billback customer owes counting only the lines keep() accepts
+// (e.g. one Billing Group's deals). Same shape as planBills().customers.
+export function customersFor(plan, keep) {
+  const byCustomer = new Map();
+  for (const l of plan.lines) {
+    if (l.exception || !keep(l)) continue;
+    for (const b of l.billTo) {
+      if (b.invoiced) continue;
+      const key = b.customer.name;
+      if (!byCustomer.has(key)) byCustomer.set(key, { customer: b.customer, cents: 0, sources: [], categories: new Map() });
+      const c = byCustomer.get(key);
+      c.cents += b.cents;
+      c.sources.push({ lineId: l.lineId, billNumber: l.billNumber, percent: b.percent, cents: b.cents });
+      const cat = l.rechargeCategory || 'Uncategorized';
+      c.categories.set(cat, (c.categories.get(cat) || 0) + b.cents);
+    }
+  }
+  return [...byCustomer.values()].sort((a, b) => b.cents - a.cents);
+}

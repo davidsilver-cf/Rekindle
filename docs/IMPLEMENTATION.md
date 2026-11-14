@@ -176,6 +176,8 @@ Run one real bill end to end with writing switched on before handing over; it ca
 
 **Set up each deal.** Open **Deals & Allocations**. Every Deals tag in Campfire is listed; new ones show **Needs setup** and their lines are held as exceptions until set up. For each deal choose the billing type, then the billback customer (Deal or Fund), or the owners with % and start dates (Allocation; owners in force must total 100% on every date). Set the deal's **approver**.
 
+**Billing group.** Each deal can be given a **Billing group** (the Campfire tag group *Billing Group*, e.g. Deal or Fund) from the dropdown at the top of its page; admins only. Create the tag group and its tags in Campfire first and add its ID to `config/rekindle.json` (`tagGroups.billingGroup`). The Invoices screen filters by it.
+
 **Allocation splits over time.** An Allocation deal's page shows **Splits over time**: each period's owners and shares, with the one in force today highlighted and any period not totalling 100% flagged. Each bill line uses the split in force on its **bill date** (the bill header's date), not the date it's stamped or invoiced, and lines already invoiced keep the split they were billed on. To change ownership, use **Change the split**: pick the date the new split starts and the new owners and shares (pre-filled with the current split). Rekindle ends the current owners the day before and starts the new ones on that date.
 
 **Test with one bill.** Enter a test bill with a few 13190 lines across a Deal, a Fund and an Allocation deal, then:
@@ -207,7 +209,7 @@ The finance team's routine is: clear exceptions on the Billback Queue, get each 
 | Billback Queue | Every Pending line on 13190: deal, billing type, who it bills, status | Fix exceptions; select lines and **Stamp** any the webhook missed; **Review for approval** |
 | Deals & Allocations | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; change owners and %; set approvers (admins) |
 | Approvals | The run grouped by deal, with each deal's total and status | Approvers **Approve** or **Send back** with a note; click a line count to see the lines |
-| Invoices | What each billback customer owes, and whether it's Ready | Download a draft PDF; tick customers, set the **Invoice date** (today by default; can be backdated) and **Create selected**; Invoice history, Retry, Re-apply tags |
+| Invoices | What each billback customer owes, and whether it's Ready | Filter by **Billing group** to invoice one group's deals at a time; download a draft PDF; tick customers, set the **Invoice date** (today by default; can be backdated) and **Create selected**; Invoice history, Retry, Re-apply tags |
 | Reclass | Expense lines waiting to move off 13190, and Reclass history | Tick lines, pick the JE date, **Reclass selected**, confirm; Retry or resolve a run that didn't finish |
 | Settings | The Campfire connection, admins, reclass accounts, people linked from Campfire | Connect or disconnect; add or remove admins; unlink people (admins) |
 
@@ -220,7 +222,7 @@ Inside Campfire's own records:
 
 1. Billback Queue: check Exceptions is 0. A deal tag that **needs setup** links straight to its setup.
 2. Click **Review for approval**; each approver approves their deals.
-3. Invoices: create invoices for every Ready customer and check the totals against the queue. Set the **Invoice date** first if they should be dated earlier (for example month-end); the due date follows the terms from that date, and the confirmation page flags a backdated date so you can check the period isn't locked.
+3. Invoices: create invoices for every Ready customer and check the totals against the queue. To invoice one Billing group at a time (for example Fund deals separately from Deal deals), pick it in the **Billing group** filter first: amounts and invoices then include only that group's deals, and the rest wait for their own invoices. Set the **Invoice date** first if they should be dated earlier (for example month-end); the due date follows the terms from that date, and the confirmation page flags a backdated date so you can check the period isn't locked.
 4. Reclass: post the month's Expense lines (date it month-end if you close that way).
 5. Check Invoice history and Reclass history are all **Complete**.
 

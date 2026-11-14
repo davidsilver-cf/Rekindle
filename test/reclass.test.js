@@ -254,3 +254,19 @@ test('Billing Group: a dropdown on the deal, saved per deal, and only admins can
   const viewer = `rekindle_session=${makeSession({ email: 'pat@campfire.ai', name: 'Pat', via: 'google' })}`;
   assert.equal((await fetch(`${base}/deals/billing-group`, { method: 'POST', headers: { cookie: viewer, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'deal=1027964&group=1078262' })).status, 403);
 });
+
+test('Invoices: Billing Group filter limits customers and amounts to that group\'s deals, and carries through to create', async () => {
+  await post('/deals/billing-group', { deal: '1027965', group: '1078263' }); // Fund II → Fund
+  let page = await (await get('/invoices')).text();
+  assert.match(page, /<span>Billing group<\/span><select name="group">/);
+  const names = (p) => [...p.matchAll(/<a href="\/invoices\?customer=([^"&]+)/g)].map((m) => decodeURIComponent(m[1])).sort();
+  const all = names(page);
+  page = await (await get('/invoices?group=1078263')).text();
+  assert.match(page, /Showing only <b>Fund<\/b> deals/);
+  const fund = names(page);
+  assert.ok(fund.length > 0 && fund.every((n) => n.startsWith('Fund II')), fund.join());
+  assert.match(page, /&amp;group=1078263|&group=1078263/);
+  assert.match(page, /<input type="hidden" name="group" value="1078263">/);
+  page = await (await get('/invoices?group=none')).text();
+  assert.deepEqual(names(page), all.filter((n) => !fund.includes(n) || n === 'Fund II Employees Only'));
+});

@@ -539,6 +539,13 @@ export function invoicesPage(ctx, selected, flash = null) {
   const durable = ctx.storeKind === 'postgres' || process.env.REKINDLE_ALLOW_MEMORY_STORE === 'true';
   const canCreate = ctx.admin && ctx.write && !ctx.demo && durable;
   const linesById = new Map(plan.lines.map((l) => [l.lineId, l]));
+  const grp = ctx.billingGroupFilter || '';
+  const keep = grp ? `&group=${encodeURIComponent(grp)}` : '';
+  const groups = ctx.config.billingGroups || [];
+  const groupName = grp === 'none' ? 'No billing group' : groups.find((g) => String(g.id) === grp)?.name;
+  const groupBar = groups.length ? `<form class="filters" method="get" action="/invoices" role="search">
+<label class="filter"><span>Billing group</span><select name="group"><option value="">All</option>${groups.map((g) => `<option value="${esc(g.id)}"${String(g.id) === grp ? ' selected' : ''}>${esc(g.name)}</option>`).join('')}<option value="none"${grp === 'none' ? ' selected' : ''}>No billing group</option></select></label>
+<div class="filter-actions"><button class="btn" type="submit">Apply</button>${grp ? '<a class="btn" href="/invoices">Clear</a>' : ''}</div></form>` : '';
 
   const rows = plan.customers
     .map((c) => {
@@ -554,7 +561,7 @@ export function invoicesPage(ctx, selected, flash = null) {
         ? `<input type="checkbox" class="pick" name="customer" value="${esc(c.customer.name)}" form="create-form" aria-label="Select ${esc(c.customer.name)}">`
         : `<input type="checkbox" disabled aria-label="${esc(c.customer.name)} can't be invoiced yet">`;
       return `<tr${c === pick ? ' style="background:var(--accent-tint)"' : ''}><td class="check">${box}</td>
-<td><a href="/invoices?customer=${encodeURIComponent(c.customer.name)}"><b>${esc(c.customer.name)}</b></a></td>
+<td><a href="/invoices?customer=${encodeURIComponent(c.customer.name)}${keep}"><b>${esc(c.customer.name)}</b></a></td>
 <td class="wrap">${esc(deals.join(', '))}</td><td>${c.sources.length}</td><td class="num">${usd(c.cents)}</td><td>${status}</td></tr>`;
     })
     .join('');
@@ -572,7 +579,7 @@ export function invoicesPage(ctx, selected, flash = null) {
   const preview = pick
     ? `<div class="card side pad" style="gap:16px"><div><span class="small muted">Invoice preview</span><div style="font-size:18px;font-weight:700">${esc(pick.customer.name)}</div></div>
 <table><thead><tr><th style="padding-left:0">Description</th><th class="num" style="padding-right:0">Amount</th></tr></thead><tbody>${lineRows}</tbody>
-<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr></tfoot></table><a class="btn" href="/invoices/pdf?customer=${encodeURIComponent(pick.customer.name)}" target="_blank" rel="noopener">Download PDF (draft)</a></div>`
+<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr></tfoot></table><a class="btn" href="/invoices/pdf?customer=${encodeURIComponent(pick.customer.name)}${keep}" target="_blank" rel="noopener">Download PDF (draft)</a></div>`
     : '';
 
   let why = '';
@@ -589,12 +596,13 @@ export function invoicesPage(ctx, selected, flash = null) {
   return layout({
     active: 'invoices', title: 'Invoices', ctx, scripts: ['/static/queue.js'],
     body: `${flashHtml}${setupNote}<div class="head"><div><h1 class="title">Create invoices</h1><p class="sub">One invoice per billback customer, once every deal feeding it is approved.</p></div>
-${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm" class="inline"><label class="filter" style="min-width:160px"><span>Invoice date</span><input type="date" name="date" value="${esc(todayLocal())}" required></label><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
+${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm" class="inline">${grp ? `<input type="hidden" name="group" value="${esc(grp)}">` : ''}<label class="filter" style="min-width:160px"><span>Invoice date</span><input type="date" name="date" value="${esc(todayLocal())}" required></label><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
 ${why && ctx.admin ? `<p class="sub" style="margin:0">${esc(why)}</p>` : ''}
+${groupBar}${grp ? `<p class="sub" style="margin:0">Showing only <b>${esc(groupName || grp)}</b> deals. Invoices created now include only their lines; other deals' lines stay for their own invoices.</p>` : ''}
 <div class="split"><div class="wide" style="display:flex;flex-direction:column;gap:16px"><div class="card">
 <div class="selbar"><span>${plan.customers.length} customer${plan.customers.length === 1 ? '' : 's'} to invoice · ${usd(plan.totals.billedCents)}</span>${canCreate ? '<span id="sel-count" aria-live="polite"></span>' : ''}</div>
 <div class="scroll"><table><thead><tr><th class="check">${canCreate ? '<input type="checkbox" id="select-all" aria-label="Select all customers ready to invoice">' : ''}</th><th>Customer</th><th>Deals</th><th>Lines</th><th class="num">Amount</th><th>Status</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="6" class="muted">Nothing left to invoice.</td></tr>'}</tbody><tfoot><tr><td></td><td colspan="3">Total</td><td class="num">${usd(plan.totals.billedCents)}</td><td></td></tr></tfoot></table></div></div>
+<tbody>${rows || `<tr><td colspan="6" class="muted">${grp ? 'Nothing to invoice in this billing group.' : 'Nothing left to invoice.'}</td></tr>`}</tbody><tfoot><tr><td></td><td colspan="3">Total</td><td class="num">${usd(plan.totals.billedCents)}</td><td></td></tr></tfoot></table></div></div>
 </div>
 ${preview}</div>
 ${historyTable(ctx)}`,
@@ -612,8 +620,8 @@ export function confirmInvoicesPage(ctx, chosen, date = null) {
     body: `<div><span class="small muted">Invoices › Confirm</span><h1 style="margin-top:6px">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} · ${usd(total)}</h1>
 <p class="sub">This creates real invoices in Campfire, attaches each PDF, and marks the source bill lines Billed. It can't be undone from Rekindle; a mistake is fixed by voiding the invoice in Campfire.</p></div>
 ${date && date < todayLocal() ? `<div class="banner demo"><b>Backdated to ${esc(date)}.</b> The invoices post in that period; make sure it isn't locked in Campfire.</div>` : ''}
-<form method="post" action="/invoices/create" class="card">${date ? `<input type="hidden" name="date" value="${esc(date)}">` : ''}<div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-<div class="pad" style="flex-direction:row;gap:8px">${blocked ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} in Campfire</button>`}<a class="btn" href="/invoices">Cancel</a></div></form>`,
+<form method="post" action="/invoices/create" class="card">${date ? `<input type="hidden" name="date" value="${esc(date)}">` : ''}${ctx.billingGroupFilter ? `<input type="hidden" name="group" value="${esc(ctx.billingGroupFilter)}">` : ''}<div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="pad" style="flex-direction:row;gap:8px">${blocked ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} in Campfire</button>`}<a class="btn" href="/invoices${ctx.billingGroupFilter ? `?group=${encodeURIComponent(ctx.billingGroupFilter)}` : ''}">Cancel</a></div></form>`,
   });
 }
 

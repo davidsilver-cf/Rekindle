@@ -18,7 +18,7 @@ import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, 
 import { validateNewDeal, createDeal } from './newdeal.js';
 import { waitingLines, prepareReclass, startReclass, advanceReclass, todayISO, matchAccount } from './reclass.js';
 import { processBills } from './process.js';
-import { planBills, planLine } from './engine.js';
+import { planBills, planLine, customersFor } from './engine.js';
 import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
@@ -280,9 +280,21 @@ const SCREENS = {
     } else if (s.has('retried')) {
       flash = { ok: s.get('retried') === 'complete', text: s.get('retried') === 'complete' ? 'Finished.' : 'Still not finished; see the message in Invoice history.' };
     }
-    return invoicesPage(ctx, s.get('customer'), flash);
+    return invoicesPage(byBillingGroup(ctx, s.get('group')), s.get('customer'), flash);
   },
 };
+
+// Invoices filtered to one Billing Group ("none" = deals without one): each
+// customer's amount, lines and readiness count only those deals' lines, so
+// invoices created under the filter carry only them.
+function byBillingGroup(ctx, group) {
+  if (!group) return { ...ctx, billingGroupFilter: '' };
+  const groupOf = new Map(ctx.config.deals.map((d) => [d.dealsTag, d.billingGroup ? String(d.billingGroup.id) : 'none']));
+  const customers = customersFor(ctx.plan, (l) => groupOf.get(l.dealsTag) === String(group));
+  const plan = { ...ctx.plan, customers, totals: { ...ctx.plan.totals, billedCents: customers.reduce((t, c) => t + c.cents, 0) } };
+  const readiness = new Map(customers.map((c) => [c.customer.name, customerReady(c, ctx.plan, ctx.groups)]));
+  return { ...ctx, plan, readiness, billingGroupFilter: String(group) };
+}
 
 // Admins from Settings, re-read from the database at most every 15 seconds.
 let adminsAt = 0;
@@ -663,7 +675,8 @@ async function handle(req, res) {
     if (!user) return redirect(res, '/login');
     const store = await getStore();
     const [config, bills, invoiced] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares()]);
-    const plan = planBills(bills, config, { invoiced });
+    const full = planBills(bills, config, { invoiced });
+    const plan = url.searchParams.get('group') ? byBillingGroup({ config, plan: full, groups: [] }, url.searchParams.get('group')).plan : full;
     const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
     if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
     const pdf = buildInvoicePdf({ customer, plan, branding: config.invoice || {}, invoice: { draft: true } });
@@ -692,13 +705,14 @@ async function handle(req, res) {
     }
 
     if (url.pathname === '/invoices/confirm' || url.pathname === '/invoices/create') {
-      const ctx = await screenContext(user);
+      const ctx = byBillingGroup({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/invoices' }, form.get('group'));
       const names = new Set(form.getAll('customer'));
       const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && ctx.readiness.get(c.customer.name)?.ready);
-      if (!chosen.length) return redirect(res, '/invoices?nothing=1');
+      const back = ctx.billingGroupFilter ? `&group=${encodeURIComponent(ctx.billingGroupFilter)}` : '';
+      if (!chosen.length) return redirect(res, `/invoices?nothing=1${back}`);
       // Invoice date: today unless the person picked another (backdating allowed).
       const date = form.get('date') || todayISO();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) return redirect(res, '/invoices?baddate=1');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) return redirect(res, `/invoices?baddate=1${back}`);
 
       if (url.pathname === '/invoices/confirm' || form.get('confirm') !== 'yes') {
         const preview = chosen.map((customer) => ({ customer, ...prepareInvoice({ customer, plan: ctx.plan, config: ctx.config, date, ref: 'preview' }) }));
@@ -720,7 +734,7 @@ async function handle(req, res) {
           console.log(JSON.stringify({ event: 'invoice_error', customer: customer.customer.name, error: err.message, taken: err instanceof ShareTakenError }));
         }
       }
-      return redirect(res, `/invoices?done=${tally.done}&partial=${tally.partial}&held=${tally.held}&failed=${tally.failed}`);
+      return redirect(res, `/invoices?done=${tally.done}&partial=${tally.partial}&held=${tally.held}&failed=${tally.failed}${back}`);
     }
 
     const run = await store.getRun(Number(form.get('run')));
