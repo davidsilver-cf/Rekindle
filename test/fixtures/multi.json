@@ -1,0 +1,452 @@
+[
+  {
+    "id": 5913145,
+    "bill_number": "ABC_261106",
+    "bill_date": "2026-11-06",
+    "due_date": "2026-12-06",
+    "item_date": "2026-11-06",
+    "status": "open",
+    "entity": 57560,
+    "entity_name": "David Silver - Rekindle",
+    "vendor": 22861210,
+    "vendor_name": "ABC Law Firm (VEN-0000001)",
+    "payment_term": 113409,
+    "ap_account": 1484279,
+    "currency": "USD",
+    "total_amount": "32000.00",
+    "lines": [
+      {
+        "id": 9337492,
+        "account_number": "13190",
+        "description": "Legal Fee - Fund II - Employees Only",
+        "amount": "2000.00",
+        "custom_field_defaultbillingtype": "Fund",
+        "tags": [
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1028616,
+            "group": 46588,
+            "name": "Fund II - Employees Only",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9190921,
+        "account_number": "13190",
+        "description": "Legal Fee - Deal XYZ",
+        "amount": "10000.00",
+        "custom_field_defaultbillingtype": "Deal",
+        "tags": [
+          {
+            "id": 1027801,
+            "group": 46588,
+            "name": "Deal XYZ",
+            "is_deleted": false
+          },
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9190922,
+        "account_number": "13190",
+        "description": "Legal Fee - Fund I",
+        "amount": "8000.00",
+        "custom_field_defaultbillingtype": "Fund",
+        "tags": [
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027964,
+            "group": 46588,
+            "name": "Fund I",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9190923,
+        "account_number": "13190",
+        "description": "Legal Fee - Fund II",
+        "amount": "12000.00",
+        "custom_field_defaultbillingtype": "Allocation",
+        "tags": [
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027965,
+            "group": 46588,
+            "name": "Fund II",
+            "is_deleted": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 5920001,
+    "bill_number": "AMEX-2611",
+    "bill_date": "2026-11-08",
+    "due_date": "2026-12-06",
+    "item_date": "2026-11-08",
+    "status": "open",
+    "entity": 57560,
+    "entity_name": "David Silver - Rekindle",
+    "vendor": 22861210,
+    "vendor_name": "American Express (VEN-0000002)",
+    "payment_term": 113409,
+    "ap_account": 1484279,
+    "currency": "USD",
+    "total_amount": "4947.25",
+    "lines": [
+      {
+        "id": 9400101,
+        "account_number": "13190",
+        "description": "Delta JFK\u2013SFO, Fund II LP site visit",
+        "amount": "1437.89",
+        "custom_field_defaultbillingtype": "Allocation",
+        "tags": [
+          {
+            "id": 1027803,
+            "group": 46589,
+            "name": "Airfare",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027965,
+            "group": 46588,
+            "name": "Fund II",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9400102,
+        "account_number": "13190",
+        "description": "Four Seasons SF, 3 nights, Fund II annual meeting prep",
+        "amount": "2316.47",
+        "custom_field_defaultbillingtype": "Allocation",
+        "tags": [
+          {
+            "id": 1027809,
+            "group": 46589,
+            "name": "Hotel Charges",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027965,
+            "group": 46588,
+            "name": "Fund II",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9400103,
+        "account_number": "13190",
+        "description": "Team dinner, Fund II employee vehicle review",
+        "amount": "284.16",
+        "custom_field_defaultbillingtype": "Fund",
+        "tags": [
+          {
+            "id": 1027813,
+            "group": 46589,
+            "name": "Meals",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1028616,
+            "group": 46588,
+            "name": "Fund II - Employees Only",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9400104,
+        "account_number": "13190",
+        "description": "Car service to/from SFO",
+        "amount": "96.33",
+        "custom_field_defaultbillingtype": "Fund",
+        "tags": [
+          {
+            "id": 1027808,
+            "group": 46589,
+            "name": "Ground Transportation",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1028616,
+            "group": 46588,
+            "name": "Fund II - Employees Only",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9400105,
+        "account_number": "13190",
+        "description": "United EWR\u2013ORD, Deal XYZ management meeting",
+        "amount": "812.40",
+        "custom_field_defaultbillingtype": "Deal",
+        "tags": [
+          {
+            "id": 1027803,
+            "group": 46589,
+            "name": "Airfare",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027801,
+            "group": 46588,
+            "name": "Deal XYZ",
+            "is_deleted": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 5920002,
+    "bill_number": "SA-1182",
+    "bill_date": "2026-11-10",
+    "due_date": "2026-12-06",
+    "item_date": "2026-11-10",
+    "status": "open",
+    "entity": 57560,
+    "entity_name": "David Silver - Rekindle",
+    "vendor": 22861210,
+    "vendor_name": "Summit Advisory LLC (VEN-0000003)",
+    "payment_term": 113409,
+    "ap_account": 1484279,
+    "currency": "USD",
+    "total_amount": "22287.77",
+    "lines": [
+      {
+        "id": 9400201,
+        "account_number": "13190",
+        "description": "Operational diligence, phase 1",
+        "amount": "18750.00",
+        "custom_field_defaultbillingtype": "Allocation",
+        "tags": [
+          {
+            "id": 1027805,
+            "group": 46589,
+            "name": "Consulting",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027965,
+            "group": 46588,
+            "name": "Fund II",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9400202,
+        "account_number": "13190",
+        "description": "Tax structuring memo, employee co-invest vehicle",
+        "amount": "3125.00",
+        "custom_field_defaultbillingtype": "Fund",
+        "tags": [
+          {
+            "id": 1027805,
+            "group": 46589,
+            "name": "Consulting",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1028616,
+            "group": 46588,
+            "name": "Fund II - Employees Only",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9400203,
+        "account_number": "13190",
+        "description": "Working lunch, diligence kickoff",
+        "amount": "412.77",
+        "custom_field_defaultbillingtype": "Allocation",
+        "tags": [
+          {
+            "id": 1027813,
+            "group": 46589,
+            "name": "Meals",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027965,
+            "group": 46588,
+            "name": "Fund II",
+            "is_deleted": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 5920003,
+    "bill_number": "ABC_261112",
+    "bill_date": "2026-11-12",
+    "due_date": "2026-12-06",
+    "item_date": "2026-11-12",
+    "status": "open",
+    "entity": 57560,
+    "entity_name": "David Silver - Rekindle",
+    "vendor": 22861210,
+    "vendor_name": "ABC Law Firm (VEN-0000001)",
+    "payment_term": 113409,
+    "ap_account": 1484279,
+    "currency": "USD",
+    "total_amount": "8693.33",
+    "lines": [
+      {
+        "id": 9400301,
+        "account_number": "13190",
+        "description": "Side letter review, Fund II",
+        "amount": "6483.33",
+        "custom_field_defaultbillingtype": "Allocation",
+        "tags": [
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027965,
+            "group": 46588,
+            "name": "Fund II",
+            "is_deleted": false
+          }
+        ]
+      },
+      {
+        "id": 9400302,
+        "account_number": "13190",
+        "description": "Fund I LPA amendment",
+        "amount": "2210.00",
+        "custom_field_defaultbillingtype": "Fund",
+        "tags": [
+          {
+            "id": 1027811,
+            "group": 46589,
+            "name": "Legal",
+            "is_deleted": false
+          },
+          {
+            "id": 1027943,
+            "group": 46610,
+            "name": "Pending",
+            "is_deleted": false
+          },
+          {
+            "id": 1027964,
+            "group": 46588,
+            "name": "Fund I",
+            "is_deleted": false
+          }
+        ]
+      }
+    ]
+  }
+]

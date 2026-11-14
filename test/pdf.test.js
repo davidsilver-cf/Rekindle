@@ -52,3 +52,30 @@ test('text helpers', () => {
   assert.equal(textWidth('Hello', 10), 22.78);
   assert.deepEqual(wrap('one two three four', 40, 10), ['one two', 'three', 'four']);
 });
+
+test('multi-bill, multi-deal, multi-category scenario ties out to the cent', () => {
+  const multi = JSON.parse(readFileSync(new URL('./fixtures/multi.json', import.meta.url), 'utf8'));
+  const mp = planBills(multi, config);
+  assert.equal(mp.totals.pendingCents, 6792835);
+  assert.equal(mp.totals.ties, true);
+  const owed = Object.fromEntries(mp.customers.map((c) => [c.customer.name, c.cents]));
+  assert.deepEqual(owed, {
+    'Fund II Main': 3312041, 'Deal XYZ': 1081240, 'Fund I': 1021000, 'Fund II Employees Only': 757549, 'Fund II Co-Invest': 621005,
+  });
+  // Every allocation split adds back to its line.
+  for (const l of mp.lines.filter((x) => x.billingType === 'Allocation')) {
+    assert.equal(l.billTo.reduce((s, b) => s + b.cents, 0), l.amountCents, `line ${l.lineId}`);
+  }
+  // Employees Only: six categories, mixing direct lines and 5% shares from three bills.
+  const emp = mp.customers.find((c) => c.customer.name === 'Fund II Employees Only');
+  const d = invoiceData({ customer: emp, plan: mp, branding: {}, invoice: { date: '2026-11-13' } });
+  assert.deepEqual(d.categories.map((c) => [c.category, c.cents]), [
+    ['Airfare', 7189], ['Consulting', 406250], ['Ground Transportation', 9633], ['Hotel Charges', 11582], ['Legal', 292416], ['Meals', 30479],
+  ]);
+  assert.equal(d.categories.reduce((s, c) => s + c.cents, 0), d.totalCents);
+  // The PDF shows each category's line, its subtotal, and the deal behind each source line.
+  const text = pageText(buildInvoicePdf({ customer: emp, plan: mp, branding: {}, invoice: { date: '2026-11-13' } })).join('\n');
+  for (const t of ['Legal subtotal', '$2,924.16', 'Consulting subtotal', '$4,062.50', 'Fund II · 5% allocation', 'Fund II - Employees Only · direct', 'Summit Advisory LLC', 'American Express', '$7,575.49']) {
+    assert.ok(text.includes(t), t);
+  }
+});

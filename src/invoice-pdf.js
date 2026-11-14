@@ -28,14 +28,21 @@ const addDays = (iso, days) => {
 export function invoiceData({ customer, plan, branding = {}, invoice = {} }) {
   const linesById = new Map(plan.lines.map((l) => [l.lineId, l]));
   const sources = customer.sources.map((s) => ({ ...s, line: linesById.get(s.lineId) }));
+  // Group by recharge category (alphabetical, so recurring invoices read the
+  // same way each time); within a category, oldest bill first.
   const byCategory = new Map();
   for (const s of sources) {
     const cat = s.line?.rechargeCategory || 'Other';
-    if (!byCategory.has(cat)) byCategory.set(cat, { category: cat, cents: 0, count: 0 });
+    if (!byCategory.has(cat)) byCategory.set(cat, { category: cat, cents: 0, count: 0, sources: [] });
     const c = byCategory.get(cat);
     c.cents += s.cents;
     c.count += 1;
+    c.sources.push(s);
   }
+  const order = (a, b) => String(a.line?.billDate).localeCompare(String(b.line?.billDate))
+    || String(a.line?.billNumber).localeCompare(String(b.line?.billNumber)) || a.lineId - b.lineId;
+  const categories = [...byCategory.values()].sort((a, b) => a.category.localeCompare(b.category));
+  for (const c of categories) c.sources.sort(order);
   const date = invoice.date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   const termsDays = Number.isInteger(branding.termsDays) ? branding.termsDays : null;
   return {
@@ -50,8 +57,8 @@ export function invoiceData({ customer, plan, branding = {}, invoice = {} }) {
     date,
     terms: branding.terms || null,
     due: termsDays !== null ? addDays(date, termsDays) : null,
-    categories: [...byCategory.values()],
-    sources,
+    categories,
+    sources: categories.flatMap((c) => c.sources),
     totalCents: customer.cents,
   };
 }
@@ -107,12 +114,19 @@ export function buildInvoicePdf(args) {
   p.text(RIGHT - 10, top + 16, 'Amount', { size: 9, font: 'bold', color: QUIET, align: 'right' });
   top += 24;
   for (const c of d.categories) {
+    if (top + 40 > BOTTOM) {
+      p = newPage();
+      p.text(M, 60, 'Invoice lines (continued)', { size: 11, font: 'bold' });
+      top = 76;
+    }
+    const deals = new Set(c.sources.map((s) => s.line?.dealsTag)).size;
     p.text(M + 10, top + 18, `${c.category} — reimbursable expenses`, { size: 10.5 });
-    p.text(M + 10, top + 32, `${c.count} source line${c.count === 1 ? '' : 's'}, detail attached`, { size: 8.5, color: QUIET });
+    p.text(M + 10, top + 32, `${c.count} source line${c.count === 1 ? '' : 's'} across ${deals} deal${deals === 1 ? '' : 's'}, detail attached`, { size: 8.5, color: QUIET });
     p.text(RIGHT - 10, top + 18, usd(c.cents), { size: 10.5, align: 'right' });
-    top += 42;
+    top += 40;
     p.line(M, top, RIGHT, top, { color: RULE });
   }
+  if (top + 70 > BOTTOM) { p = newPage(); top = 60; }
   top += 26;
   p.text(380, top, 'Total due', { size: 11, font: 'bold' });
   p.text(RIGHT - 10, top, usd(d.totalCents), { size: 14, font: 'bold', align: 'right' });
@@ -143,31 +157,48 @@ export function buildInvoicePdf(args) {
   p.text(M, top, 'Supporting detail', { size: 13, font: 'bold' });
   top = tableHead(p, top + 12);
 
-  for (const s of d.sources) {
-    const l = s.line || {};
-    const descLines = wrap(l.description || '', 128, 8.5).slice(0, 3);
-    const h = Math.max(26, 12 + descLines.length * 11 + 4);
+  const ensure = (h) => {
     if (top + h > BOTTOM) {
       p = newPage();
       p.text(M, 60, 'Supporting detail (continued)', { size: 11, font: 'bold' });
       top = tableHead(p, 72);
     }
-    const base = top + 16;
-    p.text(M + 6, base, fit(l.billNumber, 60, 8.5), { size: 8.5 });
-    p.text(M + 6, base + 11, `Line ${l.lineId}`, { size: 7.5, color: QUIET });
-    p.text(M + 70, base, fit(l.vendorName || '', 86, 8.5), { size: 8.5 });
-    p.text(M + 160, base, shortDate(l.billDate), { size: 8.5 });
-    descLines.forEach((t, i) => p.text(M + 216, base + i * 11, t, { size: 8.5 }));
-    p.text(M + 412, base, usd(l.amountCents || 0), { size: 8.5, align: 'right' });
-    p.text(M + 450, base, `${s.percent}%`, { size: 8.5, align: 'right' });
-    p.text(RIGHT - 6, base, usd(s.cents), { size: 8.5, font: 'bold', align: 'right' });
-    top += h;
+  };
+
+  for (const c of d.categories) {
+    ensure(24 + 30);
+    p.text(M + 6, top + 17, c.category, { size: 9.5, font: 'bold', color: d.accent });
+    top += 24;
+    for (const s of c.sources) {
+      const l = s.line || {};
+      const descLines = wrap(l.description || '', 128, 8.5).slice(0, 2);
+      const how = s.percent < 100 ? `${s.percent}% allocation` : 'direct';
+      const dealLine = fit(`${l.dealsTag || ''} · ${how}`, 128, 7.5);
+      const h = 12 + descLines.length * 11 + 11 + 4;
+      ensure(h);
+      const base = top + 14;
+      p.text(M + 6, base, fit(l.billNumber, 60, 8.5), { size: 8.5 });
+      p.text(M + 6, base + 11, `Line ${l.lineId}`, { size: 7.5, color: QUIET });
+      p.text(M + 70, base, fit(l.vendorName || '', 86, 8.5), { size: 8.5 });
+      p.text(M + 160, base, shortDate(l.billDate), { size: 8.5 });
+      descLines.forEach((t, i) => p.text(M + 216, base + i * 11, t, { size: 8.5 }));
+      p.text(M + 216, base + descLines.length * 11, dealLine, { size: 7.5, color: QUIET });
+      p.text(M + 412, base, usd(l.amountCents || 0), { size: 8.5, align: 'right' });
+      p.text(M + 450, base, `${s.percent}%`, { size: 8.5, align: 'right' });
+      p.text(RIGHT - 6, base, usd(s.cents), { size: 8.5, align: 'right' });
+      top += h;
+      p.line(M + 6, top, RIGHT, top, { color: RULE, width: 0.5 });
+    }
+    ensure(26);
+    p.text(M + 412, top + 16, `${c.category} subtotal`, { size: 8.5, font: 'bold', align: 'right' });
+    p.text(RIGHT - 6, top + 16, usd(c.cents), { size: 8.5, font: 'bold', align: 'right' });
+    top += 26;
     p.line(M, top, RIGHT, top, { color: RULE });
   }
-  if (top + 30 > BOTTOM) { p = newPage(); top = 60; }
-  p.text(M + 6, top + 18, `${d.sources.length} line${d.sources.length === 1 ? '' : 's'}`, { size: 8.5, color: QUIET });
-  p.text(M + 412, top + 18, 'Total billed', { size: 8.5, font: 'bold', align: 'right' });
-  p.text(RIGHT - 6, top + 18, usd(d.totalCents), { size: 9.5, font: 'bold', align: 'right' });
+  ensure(30);
+  p.text(M + 6, top + 18, `${d.sources.length} line${d.sources.length === 1 ? '' : 's'} · ${d.categories.length} categor${d.categories.length === 1 ? 'y' : 'ies'}`, { size: 8.5, color: QUIET });
+  p.text(M + 412, top + 18, 'Total billed', { size: 9, font: 'bold', align: 'right' });
+  p.text(RIGHT - 6, top + 18, usd(d.totalCents), { size: 10, font: 'bold', align: 'right' });
 
   // ---- Footers, now that the page count is known
   pages.forEach((pg, i) => {
