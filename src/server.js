@@ -36,6 +36,7 @@ import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 const STATIC = {
   '/static/queue.js': { file: '../public/queue.js', type: 'text/javascript; charset=utf-8' },
   '/static/deals.js': { file: '../public/deals.js', type: 'text/javascript; charset=utf-8' },
+  '/static/link.js': { file: '../public/link.js', type: 'text/javascript; charset=utf-8' },
   // The Rekindle flame as the browser-tab icon (/favicon.ico for browsers that ask for it directly).
   '/favicon.svg': { file: '../public/favicon.svg', type: 'image/svg+xml' },
   '/favicon.ico': { file: '../public/favicon.svg', type: 'image/svg+xml' },
@@ -109,7 +110,7 @@ async function linkedFor(campfireUserId) {
 }
 
 // After a sign-in in a tab opened by "Link my account": tie the Campfire user to this email.
-const linkUrlFor = (user) => (isUnlinkedCampfireUser(user) ? `/link/start?t=${encodeURIComponent(makeLinkToken(user))}` : null);
+const linkUrlFor = (user, req) => (isUnlinkedCampfireUser(user) ? `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}/link/start?t=${encodeURIComponent(makeLinkToken(user))}` : null);
 const linkPending = (req) => readLinkToken(cookieValue(req, LINK_COOKIE));
 const clearLink = (req) => `${LINK_COOKIE}=; HttpOnly; Path=/; Max-Age=0${req.headers['x-forwarded-proto'] === 'https' ? '; Secure; SameSite=Lax' : '; SameSite=Lax'}`;
 
@@ -501,7 +502,7 @@ async function handle(req, res) {
     const flash = s.has('connected') ? { ok: true, text: 'Connected to Campfire. Rekindle now reads and writes with this connection.' }
       : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' } : null;
     const links = isAdmin(user) ? await (await getStore()).listUserLinks().catch(() => []) : [];
-    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user), links, settings: {
+    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user, req), links, settings: {
       appConfigured: oauthConfigured(),
       apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
       scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',
@@ -527,7 +528,7 @@ async function handle(req, res) {
     if (!user) return redirect(res, '/login');
     const id = Number(panel[2]);
     const store = await getStore();
-    const base = { user, admin: isAdmin(user), write: writeEnabled(), demo: demoMode(), back: url.pathname, flash: url.searchParams.get('retagged'), linkUrl: linkUrlFor(user) };
+    const base = { user, admin: isAdmin(user), write: writeEnabled(), demo: demoMode(), back: url.pathname, flash: url.searchParams.get('retagged'), linkUrl: linkUrlFor(user, req) };
     try {
       if (panel[1] === 'bill') {
         const [config, bill] = await Promise.all([loadConfig(), demoMode() ? loadBills().then((b) => b.find((x) => x.id === id)) : getBill(id)]);
@@ -555,7 +556,7 @@ async function handle(req, res) {
   // ---- Screens and actions need a signed-in user
   if (req.method === 'GET' && SCREENS[url.pathname]) {
     if (!user) return redirect(res, '/login');
-    return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: url.pathname + url.search, linkUrl: linkUrlFor(user) }, url));
+    return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: url.pathname + url.search, linkUrl: linkUrlFor(user, req) }, url));
   }
 
   if (req.method === 'GET' && url.pathname === '/invoices/pdf') {

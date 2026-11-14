@@ -250,7 +250,8 @@ test("Campfire's context (user and workspace IDs, no email) signs people in on a
   const page = await r.text();
   assert.match(page, /Signed in from Campfire as user <b>4242<\/b> in workspace <b>57560<\/b>/);
   assert.match(page, /Not linked to a Rekindle email yet/);
-  assert.match(page, /href="\/link\/start\?t=[^"]+" target="_blank" rel="noopener">Link my account/);
+  assert.match(page, /href="http:\/\/localhost:\d+\/link\/start\?t=[^"]+" target="_blank" rel="noopener">Link my account/);
+  assert.match(page, /<input id="link-url" readonly value="http:\/\/localhost:\d+\/link\/start\?t=/);
   // Linked to an email: that person's admin rights and approvals apply.
   process.env.REKINDLE_CAMPFIRE_USERS = '4242=david@campfire.ai';
   const linked = await (await fetch(`${base}/settings?cf_ctx=${ctx()}`)).text();
@@ -289,7 +290,7 @@ test('Link my account: an unlinked Campfire user links once by signing in, then 
   const frameCookie = cookieOf(r1);
   const page = await r1.text();
   assert.doesNotMatch(page, /Approve \$/);
-  const start = page.match(/href="(\/link\/start\?t=[^"]+)"/)[1].replace(/&amp;/g, '&');
+  const start = page.match(/href="https?:\/\/[^/]+(\/link\/start\?t=[^"]+)"/)[1].replace(/&amp;/g, '&');
   // A token can't be used as a session.
   const t = decodeURIComponent(start.split('t=')[1]);
   assert.match(await (await fetch(`${base}/approvals`, { headers: { cookie: `rekindle_session=${t}` }, redirect: 'manual' })).headers.get('location'), /login/);

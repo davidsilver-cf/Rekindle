@@ -115,7 +115,8 @@ const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" style
 // For someone signed in from Campfire who isn't linked to an email yet.
 export function linkBanner(ctx) {
   if (!ctx.linkUrl || ctx.admin) return '';
-  return `<div class="banner demo" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><span>Link your Campfire account to Rekindle to stamp, approve and invoice. You'll sign in once in a new tab.</span><a class="btn sm primary" href="${esc(ctx.linkUrl)}" target="_blank" rel="noopener">Link my account</a></div>`;
+  return `<div class="banner demo" style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><span>Link your Campfire account to Rekindle to stamp, approve and invoice. You'll sign in once in a new tab.</span><a class="btn sm primary" href="${esc(ctx.linkUrl)}" target="_blank" rel="noopener">Link my account</a></div>
+<details><summary class="small">New tab shows a security error?</summary><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span class="small">Copy this link into a new browser tab instead (it works for 10 minutes):</span><input id="link-url" readonly value="${esc(ctx.linkUrl)}" style="flex:1 1 260px;min-height:32px;padding:0 8px;border:1px solid var(--field-line);border-radius:6px;font:inherit;font-size:12px;background:var(--surface);color:var(--ink)"><button type="button" class="btn sm" data-copy-link="link-url">Copy link</button></div></details></div><script src="/static/link.js" defer></script>`;
 }
 
 // Light / Dark / Auto links; back = the page you're on.
