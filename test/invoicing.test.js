@@ -337,3 +337,10 @@ test('invoice date: defaults to today on the Invoices screen, can be backdated, 
   assert.match(r.headers.get('location'), /done=1/);
   assert.equal(sent.invoices.at(-1).invoice_date, '2026-10-31');
 });
+
+test('Invoice history links each invoice number to the invoice in Campfire', async () => {
+  const page = await (await get('/invoices')).text();
+  assert.match(page, /<a href="https:\/\/app\.meetcampfire\.com\/v2\/accounting\/invoices\/\d+" target="_blank" rel="noopener" title="Open in Campfire">INV-\d+<\/a>/);
+  const framed = await (await fetch(`${base}/invoices`, { headers: { cookie: admin(), 'sec-fetch-dest': 'iframe' } })).text();
+  assert.match(framed, /accounting\/invoices\/\d+" target="_top"/);
+});

@@ -137,10 +137,10 @@ test('Reclass screen waits for an expense account, then posts one journal entry 
 
   page = await (await get('/reclass')).text();
   assert.match(page, /No Expense lines waiting/);
-  assert.match(page, /JE-1/);
+  assert.match(page, /<a href="https:\/\/app\.meetcampfire\.com\/v2\/accounting\/journal-entry\/881" target="_blank" rel="noopener" title="Open in Campfire">JE-1<\/a>/);
   assert.match(page, />Complete</);
   // The bill panel shows it.
-  assert.match(await (await fetch(`${base}/campfire/panel/bill/${bills[0].id}`, { headers: { cookie: admin(), 'sec-fetch-dest': 'iframe' } })).text(), /Reclassed · JE JE-1/);
+  assert.match(await (await fetch(`${base}/campfire/panel/bill/${bills[0].id}`, { headers: { cookie: admin(), 'sec-fetch-dest': 'iframe' } })).text(), /Reclassed · JE <a href="https:\/\/app\.meetcampfire\.com\/v2\/accounting\/journal-entry\/881" target="_top"/);
   // Posting again does nothing.
   assert.equal((await post('/reclass/create', { line: '9190922', date: '2026-11-30', confirm: 'yes' })).headers.get('location'), '/reclass?nothing=1');
   assert.equal(sent.jes.length, 1);

@@ -116,6 +116,15 @@ table.owners select,table.owners input{min-height:36px;padding:0 6px;border:1px 
 
 const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7.5z"></path><path d="M6 21h12"></path></svg>`;
 
+// Links to Campfire transactions. Inside Campfire they replace the Campfire
+// page (target _top); on Rekindle's own site they open a new tab.
+const CAMPFIRE_APP = () => (process.env.CAMPFIRE_APP_URL || 'https://app.meetcampfire.com').replace(/\/$/, '');
+const CF_PATHS = { invoice: '/v2/accounting/invoices/', je: '/v2/accounting/journal-entry/' };
+export function cfLink(kind, id, text, embedded = false) {
+  if (!id) return esc(text);
+  return `<a href="${esc(CAMPFIRE_APP() + CF_PATHS[kind] + encodeURIComponent(id))}" target="${embedded ? '_top' : '_blank'}" rel="noopener" title="Open in Campfire">${esc(text)}</a>`;
+}
+
 // For someone signed in from Campfire who isn't linked to an email yet.
 export function linkBanner(ctx) {
   if (!ctx.linkUrl || ctx.admin) return '';
@@ -515,7 +524,7 @@ function historyTable(ctx) {
 <button class="btn sm" type="submit" name="outcome" value="not_created">It wasn't created</button></form>`);
     }
     return `<tr><td>${esc(new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }))}</td>
-<td><b>${esc(r.customer_name)}</b><div class="small muted">${esc(r.ref)}</div></td><td>${esc(r.invoice_number || '—')}</td><td class="num">${usd(r.total_cents)}</td>
+<td><b>${esc(r.customer_name)}</b><div class="small muted">${esc(r.ref)}</div></td><td>${r.invoice_number ? cfLink('invoice', r.campfire_invoice_id, r.invoice_number, ctx.embed) : '—'}</td><td class="num">${usd(r.total_cents)}</td>
 <td>${pill(label, style)}${r.error ? `<div class="small no" style="white-space:normal;max-width:360px;margin-top:4px">${esc(r.error)}</div>` : ''}</td>
 <td style="white-space:normal"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">${actions.join('')}</div></td></tr>`;
   }).join('');
@@ -736,8 +745,8 @@ export function panelPage(p) {
         else if (plan?.billTo?.length) billed = plan.billTo.map((b) => `${esc(b.customer.name)}${b.percent < 100 ? ` ${b.percent}%` : ''}`).join('<br>');
         else billed = '<span class="muted">—</span>';
         const rc = (p.reclasses || []).find((r) => r.line_id === line.id);
-        const invoices = rc ? `Reclassed · JE ${esc(rc.je_number || 'posting…')}` : inv.length
-          ? inv.map((i) => `${esc(i.invoice_number || 'creating…')} <span class="muted">${esc(i.customer_name || '')}</span>`).join('<br>')
+        const invoices = rc ? `Reclassed · JE ${rc.je_number ? cfLink('je', rc.campfire_je_id, rc.je_number, true) : 'posting…'}` : inv.length
+          ? inv.map((i) => `${i.invoice_number ? cfLink('invoice', i.campfire_invoice_id, i.invoice_number, true) : 'creating…'} <span class="muted">${esc(i.customer_name || '')}</span>`).join('<br>')
           : '<span class="muted">Not invoiced</span>';
         return `<tr><td>${esc(line.description || '')}<div class="muted">${esc(dealOf(line, p.config) || 'No deal')}${plan?.billingType ? ` · ${pill(plan.billingType, TYPE_STYLE[plan.billingType] || '')}` : ''}</div></td>
 <td class="num">${usd(Math.round(Number(line.amount) * 100))}</td><td>${esc(cfStatus(line, p.config))}</td><td>${billed}</td><td>${invoices}</td></tr>`;
@@ -788,7 +797,7 @@ function reclassHistory(ctx) {
 <button class="btn sm" type="submit" name="outcome" value="found">It was posted</button>
 <button class="btn sm" type="submit" name="outcome" value="not_created">It wasn't posted</button></form>`);
     }
-    return `<tr><td>${esc(atET(r.created_at))}</td><td>${esc(r.je_date)}<div class="small muted">${esc(r.ref)}</div></td><td>${esc(r.je_number || '—')}</td><td>${esc(r.line_count)}</td><td class="num">${usd(r.total_cents)}</td>
+    return `<tr><td>${esc(atET(r.created_at))}</td><td>${esc(r.je_date)}<div class="small muted">${esc(r.ref)}</div></td><td>${r.je_number ? cfLink('je', r.campfire_je_id, r.je_number, ctx.embed) : '—'}</td><td>${esc(r.line_count)}</td><td class="num">${usd(r.total_cents)}</td>
 <td>${pill(label, style)}${r.error ? `<div class="small no" style="white-space:normal;max-width:360px;margin-top:4px">${esc(r.error)}</div>` : ''}</td>
 <td style="white-space:normal"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">${actions.join('')}</div></td></tr>`;
   }).join('');
