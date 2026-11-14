@@ -311,6 +311,16 @@ test('Link my account: an unlinked Campfire user links once by signing in, then 
   assert.match(await (await fetch(`${base}/settings`, { headers: { cookie: admin } })).text(), /People linked from Campfire[\s\S]*david@campfire\.ai<\/td><td>7777/);
   await fetch(`${base}/link/remove`, { method: 'POST', headers: { cookie: admin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'campfire_user=7777', redirect: 'manual' });
   assert.match(await (await fetch(`${base}/approvals?cf_ctx=${ctx()}`)).text(), />Link my account</);
+  // An admin signed in with the token links someone by email (Campfire won't say who signed in).
+  const r5 = await fetch(base + start, { redirect: 'manual', headers: { cookie: `rekindle_session=${makeSession({ email: 'admin@token', name: 'Admin', via: 'token' })}` } });
+  assert.match(await r5.text(), /action="\/link\/assign"/);
+  const tokenAdmin = `rekindle_session=${makeSession({ email: 'admin@token', name: 'Admin', via: 'token' })}; ${cookieOf(r5)}`;
+  const bad = await fetch(`${base}/link/assign`, { method: 'POST', headers: { cookie: tokenAdmin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'email=x@elsewhere.com' });
+  assert.equal(bad.status, 400);
+  const ok = await fetch(`${base}/link/assign`, { method: 'POST', headers: { cookie: tokenAdmin, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'email=pat@campfire.ai' });
+  assert.match(await ok.text(), /Linked to <b>pat@campfire\.ai<\/b>/);
+  // Not an admin: can't assign.
+  assert.equal((await fetch(`${base}/link/assign`, { method: 'POST', headers: { cookie: `rekindle_session=${makeSession({ email: 'pat@campfire.ai', name: 'P', via: 'campfire' })}; ${cookieOf(r5)}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'email=pat@campfire.ai' })).status, 403);
   // An expired or forged link token is refused.
   assert.equal((await fetch(`${base}/link/start?t=nope`)).status, 400);
 });

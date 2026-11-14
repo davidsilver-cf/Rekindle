@@ -116,7 +116,7 @@ const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" style
 export function linkBanner(ctx) {
   if (!ctx.linkUrl || ctx.admin) return '';
   return `<div class="banner demo" style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><span>Link your Campfire account to Rekindle to stamp, approve and invoice. You'll sign in once in a new tab.</span><a class="btn sm primary" href="${esc(ctx.linkUrl)}" target="_blank" rel="noopener">Link my account</a></div>
-<details><summary class="small">New tab shows a security error?</summary><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span class="small">Copy this link into a new browser tab instead (it works for 10 minutes):</span><input id="link-url" readonly value="${esc(ctx.linkUrl)}" style="flex:1 1 260px;min-height:32px;padding:0 8px;border:1px solid var(--field-line);border-radius:6px;font:inherit;font-size:12px;background:var(--surface);color:var(--ink)"><button type="button" class="btn sm" data-copy-link="link-url">Copy link</button></div></details></div><script src="/static/link.js" defer></script>`;
+<details><summary class="small">New tab shows a security error?</summary><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span class="small">Copy this link into a new browser tab instead (it works for 10 minutes). If you can't sign in there, send it to a Rekindle admin to link you:</span><input id="link-url" readonly value="${esc(ctx.linkUrl)}" style="flex:1 1 260px;min-height:32px;padding:0 8px;border:1px solid var(--field-line);border-radius:6px;font:inherit;font-size:12px;background:var(--surface);color:var(--ink)"><button type="button" class="btn sm" data-copy-link="link-url">Copy link</button></div></details></div><script src="/static/link.js" defer></script>`;
 }
 
 // Light / Dark / Auto links; back = the page you're on.
@@ -677,11 +677,13 @@ function linkedPeople(links) {
 ${links.length ? `<div class="scroll"><table><thead><tr><th>Email</th><th>Campfire user</th><th>Workspace</th><th>Linked</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="pad"><span class="small muted">No one yet.</span></div>'}</div>`;
 }
 
-export function linkPage({ state, email, loginOpts = {} }) {
+export function linkPage({ state, email, link, error, loginOpts = {} }) {
   const body = {
     signin: `<p class="sub" style="margin:0">Sign in to link your Campfire account to your Rekindle email. You only do this once.</p>
 ${loginOpts.campfire ? '<a class="btn primary" href="/auth/campfire">Sign in with Campfire</a>' : ''}${loginOpts.google ? `<a class="btn${loginOpts.campfire ? '' : ' primary'}" href="/auth/google">Sign in with Google</a>` : ''}
 ${!loginOpts.campfire && !loginOpts.google ? '<div class="banner bad">No sign-in with an email is set up, so this can\'t be linked here. Ask an admin to add you in <code>REKINDLE_CAMPFIRE_USERS</code>.</div>' : ''}`,
+    assign: `<p class="sub" style="margin:0">You're signed in as an admin with the access token. Enter the email Campfire user <b>${esc(link?.campfireUserId)}</b> should be in Rekindle (their admin rights and deal approvals follow it).</p>
+${error ? `<div class="banner bad">${esc(error)}</div>` : ''}<form method="post" action="/link/assign" style="display:flex;flex-direction:column;gap:10px"><label for="email" class="small muted">Email</label><input id="email" name="email" type="email" required autocomplete="email" style="min-height:44px;padding:0 12px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)"><button class="btn primary" type="submit">Link</button></form>`,
     done: `<div class="banner good">Linked to <b>${esc(email || '')}</b>.</div><p class="sub" style="margin:0">Go back to Campfire and press Reload in Rekindle. You can close this tab.</p>`,
     expired: '<div class="banner bad">This link has expired or isn\'t valid.</div><p class="sub" style="margin:0">Go back to Rekindle in Campfire and press <b>Link my account</b> again. Links last 10 minutes.</p>',
     workspace: '<div class="banner bad">This Campfire workspace isn\'t one Rekindle serves.</div>',

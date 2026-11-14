@@ -378,8 +378,9 @@ async function handle(req, res) {
     if (user?.email && user.via !== 'token' && !isUnlinkedCampfireUser(user) && allowedToSignIn(user.email)) {
       return redirect(res, '/link/finish', { 'Set-Cookie': cookie });
     }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': cookie, 'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'`, 'Referrer-Policy': 'same-origin' });
-    return res.end(linkPage({ state: 'signin', loginOpts }));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': cookie, 'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'`, 'Referrer-Policy': 'same-origin' });
+    // An admin signed in with the access token (no email) says which email it is.
+    return res.end(linkPage({ state: isAdmin(user) ? 'assign' : 'signin', link, loginOpts }));
   }
   if (req.method === 'GET' && url.pathname === '/link/finish') {
     const link = linkPending(req);
@@ -393,6 +394,20 @@ async function handle(req, res) {
     await store.audit(user.email, 'campfire_user_linked', { campfireUserId: link.campfireUserId, workspace: link.workspace });
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': clearLink(req) });
     return res.end(linkPage({ state: 'done', email: user.email, loginOpts }));
+  }
+  // An admin links a Campfire user to an email they name (when Campfire won't say who signed in).
+  if (req.method === 'POST' && url.pathname === '/link/assign') {
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can link people.');
+    const link = linkPending(req);
+    if (!link) return html(res, linkPage({ state: 'expired', loginOpts }), 400);
+    const email = String(new URLSearchParams(await readBody(req)).get('email') || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email) || !allowedToSignIn(email)) return html(res, linkPage({ state: 'assign', link, loginOpts, error: `${email || 'That'} isn't an email Rekindle allows (REKINDLE_ALLOWED_DOMAIN, REKINDLE_ALLOWED_EMAILS or REKINDLE_ADMINS).` }), 400);
+    if (!allowedWorkspace(link.workspace)) return html(res, linkPage({ state: 'workspace', loginOpts }), 403);
+    const store = await getStore();
+    await store.saveUserLink({ campfireUserId: link.campfireUserId, workspace: link.workspace, email });
+    await store.audit(user.email, 'campfire_user_linked', { campfireUserId: link.campfireUserId, workspace: link.workspace, email, by: 'admin' });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': clearLink(req) });
+    return res.end(linkPage({ state: 'done', email, loginOpts }));
   }
   if (req.method === 'POST' && url.pathname === '/link/remove') {
     if (!isAdmin(user)) return send(res, 403, 'Only admins can unlink people.');
