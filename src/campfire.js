@@ -89,3 +89,31 @@ export async function updateBill(update) {
     return request(path, {}, { method: 'PUT', body: { ...update.header, lines: update.lines } });
   }
 }
+
+// Create an invoice. Returns Campfire's invoice (id, invoice_number, ...).
+export function createInvoice(body) {
+  return request('/coa/api/v1/invoice', {}, { method: 'POST', body });
+}
+
+// Attach a file to a record, e.g. a PDF to an invoice.
+export async function uploadFile({ model, objectId, filename, data, type = 'application/pdf' }) {
+  const url = new URL('/ca/api/file/upload', BASE_URL);
+  url.searchParams.set('model', model);
+  url.searchParams.set('object_id', String(objectId));
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const form = new FormData();
+    form.append('file', new Blob([data], { type }), filename);
+    const res = await fetch(url, { method: 'POST', headers: { Authorization: `Token ${apiKey()}` }, body: form });
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, Number(res.headers.get('retry-after') || 1) * 1000));
+      continue;
+    }
+    if (!res.ok) {
+      const err = new Error(`Campfire ${res.status} on file upload: ${(await res.text()).slice(0, 300)}`);
+      err.status = res.status;
+      throw err;
+    }
+    return true;
+  }
+  throw new Error('Campfire kept rate-limiting the file upload');
+}

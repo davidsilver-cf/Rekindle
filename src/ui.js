@@ -435,41 +435,117 @@ ${ready ? '<a class="btn primary" href="/invoices">All approved · preview invoi
   });
 }
 
-export function invoicesPage(ctx, selected) {
+const RUN_STATUS = {
+  creating: ['Creating…', 'background:var(--warn-tint);color:var(--warn)'],
+  created: ['Created · PDF not attached', 'background:var(--warn-tint);color:var(--warn)'],
+  pdf_attached: ['Created · lines not marked', 'background:var(--warn-tint);color:var(--warn)'],
+  complete: ['Complete', 'background:var(--good-tint);color:var(--good)'],
+  failed: ['Not created', 'background:#FDECEC;color:#991B1B'],
+  unknown: ['Check Campfire', 'background:#FDECEC;color:#991B1B'],
+};
+
+function historyTable(ctx) {
+  const runs = ctx.runs || [];
+  if (!runs.length) return '';
+  const rows = runs.map((r) => {
+    const [label, style] = RUN_STATUS[r.status] || [r.status, ''];
+    const actions = [];
+    if (r.has_pdf) actions.push(`<a class="btn sm" href="/invoices/run/${esc(r.id)}/pdf" target="_blank" rel="noopener">PDF</a>`);
+    if (ctx.admin && (r.status === 'created' || r.status === 'pdf_attached')) {
+      actions.push(`<form method="post" action="/invoices/retry"><input type="hidden" name="run" value="${esc(r.id)}"><button class="btn sm" type="submit">Retry</button></form>`);
+    }
+    if (ctx.admin && r.status === 'unknown') {
+      actions.push(`<form class="inline" method="post" action="/invoices/resolve"><input type="hidden" name="run" value="${esc(r.id)}">
+<label class="filter" style="min-width:120px"><span>Campfire invoice ID</span><input name="campfire_id" inputmode="numeric" pattern="[0-9]*" placeholder="if it was created"></label>
+<button class="btn sm" type="submit" name="outcome" value="found">It was created</button>
+<button class="btn sm" type="submit" name="outcome" value="not_created">It wasn't created</button></form>`);
+    }
+    return `<tr><td>${esc(new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }))}</td>
+<td><b>${esc(r.customer_name)}</b><div class="small muted">${esc(r.ref)}</div></td><td>${esc(r.invoice_number || '—')}</td><td class="num">${usd(r.total_cents)}</td>
+<td>${pill(label, style)}${r.error ? `<div class="small no" style="white-space:normal;max-width:360px;margin-top:4px">${esc(r.error)}</div>` : ''}</td>
+<td style="white-space:normal"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">${actions.join('')}</div></td></tr>`;
+  }).join('');
+  return `<div class="card"><div class="cardhead"><h2>Invoice history</h2><span class="small muted">Newest first</span></div>
+<div class="scroll"><table><thead><tr><th>When</th><th>Customer</th><th>Invoice</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+export function invoicesPage(ctx, selected, flash = null) {
   const { plan } = ctx;
   const pick = plan.customers.find((c) => c.customer.name === selected) || plan.customers[0];
+  const canCreate = ctx.admin && ctx.write && !ctx.demo;
+  const linesById = new Map(plan.lines.map((l) => [l.lineId, l]));
+
   const rows = plan.customers
     .map((c) => {
-      const cats = [...c.categories.keys()];
-      return `<tr${c === pick ? ' style="background:var(--accent-tint)"' : ''}><td><a href="/invoices?customer=${encodeURIComponent(c.customer.name)}"><b>${esc(c.customer.name)}</b></a></td><td class="muted">${esc(c.customer.campfireId ?? '')}</td><td>${c.sources.length} · ${esc(cats.join(', '))}</td><td class="num">${usd(c.cents)}</td><td>${pill('Draft', 'background:#F1EEE9;color:#3F3B36')}</td></tr>`;
+      const r = ctx.readiness?.get(c.customer.name) || { ready: false, waitingOn: [] };
+      const deals = [...new Set(c.sources.map((s) => linesById.get(s.lineId)?.dealsTag))];
+      const linked = Boolean(c.customer.customerId);
+      let status;
+      if (!r.ready) status = `${pill('Waiting for approval', 'background:var(--warn-tint);color:var(--warn)')}<div class="small muted" style="white-space:normal">${esc(r.waitingOn.join(', '))}</div>`;
+      else if (!linked) status = `${pill('Not linked to a Campfire customer', 'background:#FDECEC;color:#991B1B')}`;
+      else status = pill('Ready', 'background:var(--good-tint);color:var(--good)');
+      const ok = r.ready && linked;
+      const box = canCreate && ok
+        ? `<input type="checkbox" class="pick" name="customer" value="${esc(c.customer.name)}" form="create-form" aria-label="Select ${esc(c.customer.name)}">`
+        : `<input type="checkbox" disabled aria-label="${esc(c.customer.name)} can't be invoiced yet">`;
+      return `<tr${c === pick ? ' style="background:var(--accent-tint)"' : ''}><td class="check">${box}</td>
+<td><a href="/invoices?customer=${encodeURIComponent(c.customer.name)}"><b>${esc(c.customer.name)}</b></a></td>
+<td class="wrap">${esc(deals.join(', '))}</td><td>${c.sources.length}</td><td class="num">${usd(c.cents)}</td><td>${status}</td></tr>`;
     })
     .join('');
 
   const lineRows = pick
     ? pick.sources
         .map((s) => {
-          const l = plan.lines.find((x) => x.lineId === s.lineId);
+          const l = linesById.get(s.lineId);
           const label = s.percent < 100 ? `${esc(l.rechargeCategory ?? 'Other')} · ${esc(l.dealsTag)} allocation (${esc(s.percent)}%)` : `${esc(l.rechargeCategory ?? 'Other')} · ${esc(l.dealsTag)}`;
           const note = s.percent < 100 ? `${esc(s.percent)}% of ${usd(l.amountCents)} · ${esc(l.billNumber)}` : `${esc(l.description)} · ${esc(l.billNumber)}`;
           return `<tr><td style="padding-left:0;white-space:normal">${label}<div class="small muted">${note}</div></td><td class="num" style="padding-right:0">${usd(s.cents)}</td></tr>`;
         })
         .join('')
     : '';
-
   const preview = pick
     ? `<div class="card side pad" style="gap:16px"><div><span class="small muted">Invoice preview</span><div style="font-size:18px;font-weight:700">${esc(pick.customer.name)}</div></div>
 <table><thead><tr><th style="padding-left:0">Description</th><th class="num" style="padding-right:0">Amount</th></tr></thead><tbody>${lineRows}</tbody>
-<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr></tfoot></table><a class="btn primary" href="/invoices/pdf?customer=${encodeURIComponent(pick.customer.name)}" target="_blank" rel="noopener">Download PDF (draft)</a></div>`
+<tfoot><tr><td style="padding-left:0">Total due</td><td class="num" style="padding-right:0">${usd(pick.cents)}</td></tr></tfoot></table><a class="btn" href="/invoices/pdf?customer=${encodeURIComponent(pick.customer.name)}" target="_blank" rel="noopener">Download PDF (draft)</a></div>`
     : '';
 
+  let why = '';
+  if (!ctx.admin) why = 'Only admins can create invoices.';
+  else if (ctx.demo) why = 'Demo mode: connect Campfire to create invoices.';
+  else if (!ctx.write) why = 'Writing to Campfire is off (REKINDLE_WRITE).';
+  const setupNote = ctx.productMissing
+    ? '<div class="banner bad"><b>Invoice product not set.</b> Set <code>REKINDLE_INVOICE_PRODUCT_ID</code> on Render to the Campfire product whose income account is 13190 Unbilled Receivable, so invoices clear the unbilled balance.</div>'
+    : '';
+  const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}" style="white-space:pre-line">${esc(flash.text)}</div>` : '';
+
   return layout({
-    active: 'invoices', title: 'Invoices', ctx,
-    body: `<div class="head"><div><h1>Create invoices</h1><p class="sub">One invoice per billback customer. Lines show where each amount came from.</p></div>
-<button class="btn primary" type="button" disabled title="Invoice creation is the next build step">Create ${plan.customers.length} invoices (coming)</button></div>
-<div class="split"><div class="wide" style="display:flex;flex-direction:column;gap:16px"><div class="card"><div class="scroll"><table><thead><tr><th>Customer</th><th>Campfire ID</th><th>Lines</th><th class="num">Amount</th><th>Status</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="5" class="muted">Nothing to invoice.</td></tr>'}</tbody><tfoot><tr><td colspan="3">Total</td><td class="num">${usd(plan.totals.billedCents)}</td><td></td></tr></tfoot></table></div></div>
-<div class="card pad"><h2>When invoicing is built, Rekindle will</h2><span>1. Post these invoices in Campfire, crediting ${esc(ctx.config.unbilledAccountNumber)} Unbilled Receivable</span><span>2. Set Billback Status to Billed on the source lines</span><span>3. Keep a record of which line went on which invoice</span></div></div>
-${preview}</div>`,
+    active: 'invoices', title: 'Invoices', ctx, scripts: ['/static/queue.js'],
+    body: `${flashHtml}${setupNote}<div class="head"><div><h1>Create invoices</h1><p class="sub">One invoice per billback customer, once every deal feeding it is approved.</p></div>
+${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm"><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
+${why && ctx.admin ? `<p class="sub" style="margin:0">${esc(why)}</p>` : ''}
+<div class="split"><div class="wide" style="display:flex;flex-direction:column;gap:16px"><div class="card">
+<div class="selbar"><span>${plan.customers.length} customer${plan.customers.length === 1 ? '' : 's'} to invoice · ${usd(plan.totals.billedCents)}</span>${canCreate ? '<span id="sel-count" aria-live="polite"></span>' : ''}</div>
+<div class="scroll"><table><thead><tr><th class="check">${canCreate ? '<input type="checkbox" id="select-all" aria-label="Select all customers ready to invoice">' : ''}</th><th>Customer</th><th>Deals</th><th>Lines</th><th class="num">Amount</th><th>Status</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="6" class="muted">Nothing left to invoice.</td></tr>'}</tbody><tfoot><tr><td></td><td colspan="3">Total</td><td class="num">${usd(plan.totals.billedCents)}</td><td></td></tr></tfoot></table></div></div>
+</div>
+${preview}</div>
+${historyTable(ctx)}`,
+  });
+}
+
+export function confirmInvoicesPage(ctx, chosen) {
+  const total = chosen.reduce((s, c) => s + c.customer.cents, 0);
+  const rows = chosen.map((c) => `<tr><td><b>${esc(c.customer.customer.name)}</b><input type="hidden" name="customer" value="${esc(c.customer.customer.name)}"></td>
+<td>${c.request.lines.length}</td><td>${esc(c.request.invoice_date)}</td><td>${esc(c.request.due_date)}</td><td class="num">${usd(c.customer.cents)}</td>
+<td>${c.problems.length ? `<span class="no" style="white-space:normal">${esc(c.problems.join(' '))}</span>` : pill('Ready', 'background:var(--good-tint);color:var(--good)')}</td></tr>`).join('');
+  const blocked = chosen.some((c) => c.problems.length);
+  return layout({
+    active: 'invoices', title: 'Confirm invoices', ctx,
+    body: `<div><span class="small muted">Invoices › Confirm</span><h1 style="margin-top:6px">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} · ${usd(total)}</h1>
+<p class="sub">This creates real invoices in Campfire, attaches each PDF, and marks the source bill lines Billed. It can't be undone from Rekindle; a mistake is fixed by voiding the invoice in Campfire.</p></div>
+<form method="post" action="/invoices/create" class="card"><div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="pad" style="flex-direction:row;gap:8px">${blocked ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} in Campfire</button>`}<a class="btn" href="/invoices">Cancel</a></div></form>`,
   });
 }
 

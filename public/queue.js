@@ -10,7 +10,8 @@
   function refresh() {
     var n = picks.filter(function (p) { return p.checked; }).length;
     stampSelected.disabled = n === 0;
-    stampSelected.textContent = n ? 'Stamp ' + n + ' selected' : 'Stamp selected';
+    var verb = stampSelected.getAttribute('data-verb') || 'Stamp';
+    stampSelected.textContent = n ? verb + ' ' + n + ' selected' : verb + ' selected';
     if (count) count.textContent = n ? n + ' selected' : '';
     if (all) {
       all.checked = picks.length > 0 && n === picks.length;

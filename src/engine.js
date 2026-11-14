@@ -39,13 +39,18 @@ export function splitCents(totalCents, owners) {
   return shares;
 }
 
+// Billback statuses Rekindle works on: Pending (nothing invoiced yet) and
+// Allocated Pending Invoice (a split line with some shares invoiced).
+export const OPEN_STATUSES = ['Pending', 'Allocated Pending Invoice'];
+
 // Plan one bill line. Returns null for lines Rekindle should not touch
-// (wrong account, or not Pending).
+// (wrong account, or not in an open billback status).
 export function planLine(bill, line, config) {
   if (line.account_number !== config.unbilledAccountNumber) return null;
 
   const status = tagInGroup(line, config.tagGroups.billbackStatus);
-  if (!status || status.id !== config.billbackStatusTags.Pending) return null;
+  const open = OPEN_STATUSES.map((n) => config.billbackStatusTags[n]).filter(Boolean);
+  if (!status || !open.includes(status.id)) return null;
 
   const base = {
     billId: bill.id,
@@ -53,6 +58,8 @@ export function planLine(bill, line, config) {
     billDate: bill.bill_date,
     vendorName: (bill.vendor_name || '').replace(/\s*\(VEN-\d+\)\s*$/, '') || null,
     entityName: bill.entity_name || null,
+    entityId: bill.entity ?? null,
+    status: status.name,
     lineId: line.id,
     description: line.description,
     amountCents: toCents(line.amount),
@@ -100,7 +107,7 @@ export function planLine(bill, line, config) {
       base.warnings.push(`Line already tagged ${existing.name}, Tag Setup says ${deal.customer.name}; using the line's tag`);
     }
     const customer = existing && existing.id !== deal.customer.billbackTagId
-      ? { name: existing.name, billbackTagId: existing.id }
+      ? (config.billbackCustomers || []).find((c) => c.billbackTagId === existing.id) || { name: existing.name, billbackTagId: existing.id }
       : deal.customer;
     base.billTo = [{ customer, percent: 100, cents: base.amountCents }];
     return base;
@@ -124,7 +131,12 @@ export function planLine(bill, line, config) {
   return { ...base, exception: `Unknown billing type "${billingType}"` };
 }
 
-export function planBills(bills, config) {
+// invoiced: Set of "lineId:billbackTagId" shares already on a Rekindle
+// invoice. Those shares are kept on the line (marked invoiced) but left out
+// of what each customer still owes, so nothing is billed twice.
+export const shareKey = (lineId, billbackTagId) => `${lineId}:${billbackTagId}`;
+
+export function planBills(bills, config, { invoiced = new Set() } = {}) {
   const lines = [];
   for (const bill of bills) {
     for (const line of bill.lines || []) {
@@ -132,12 +144,17 @@ export function planBills(bills, config) {
       if (p) lines.push(p);
     }
   }
+  for (const l of lines) {
+    for (const b of l.billTo) b.invoiced = invoiced.has(shareKey(l.lineId, b.customer.billbackTagId));
+    l.invoicedShares = l.billTo.filter((b) => b.invoiced).length;
+  }
 
-  // What each billback customer owes, by recharge category (one invoice line each).
+  // What each billback customer still owes, by recharge category (one invoice line each).
   const byCustomer = new Map();
   for (const l of lines) {
     if (l.exception) continue;
     for (const b of l.billTo) {
+      if (b.invoiced) continue;
       const key = b.customer.name;
       if (!byCustomer.has(key)) byCustomer.set(key, { customer: b.customer, cents: 0, sources: [], categories: new Map() });
       const c = byCustomer.get(key);
@@ -150,6 +167,7 @@ export function planBills(bills, config) {
 
   const pendingCents = lines.reduce((s, l) => s + l.amountCents, 0);
   const billedCents = [...byCustomer.values()].reduce((s, c) => s + c.cents, 0);
+  const invoicedCents = lines.filter((l) => !l.exception).reduce((s, l) => s + l.billTo.filter((b) => b.invoiced).reduce((t, b) => t + b.cents, 0), 0);
   const expenseCents = lines.filter((l) => !l.exception && l.billingType === 'Expense').reduce((s, l) => s + l.amountCents, 0);
   const exceptionCents = lines.filter((l) => l.exception).reduce((s, l) => s + l.amountCents, 0);
 
@@ -159,10 +177,11 @@ export function planBills(bills, config) {
     totals: {
       pendingCents,
       billedCents,
+      invoicedCents,
       expenseCents,
       exceptionCents,
-      // Every pending cent must land somewhere: billed, expensed, or an exception.
-      ties: pendingCents === billedCents + expenseCents + exceptionCents,
+      // Every open cent must land somewhere: still to bill, already invoiced, expensed, or an exception.
+      ties: pendingCents === billedCents + invoicedCents + expenseCents + exceptionCents,
     },
   };
 }

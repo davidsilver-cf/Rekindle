@@ -10,9 +10,14 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Writing to Campfire stays off until this is changed to "true".
+      # Writing to Campfire (stamping, invoices) is off unless this is "true".
+      # Set by hand in Render so a deploy never switches it.
       - key: REKINDLE_WRITE
-        value: "false"
+        sync: false
+      # The Campfire product used on invoice lines; its income account should
+      # be 13190 Unbilled Receivable so invoicing clears the unbilled balance.
+      - key: REKINDLE_INVOICE_PRODUCT_ID
+        sync: false
       # Secrets: Render asks for these; add any left blank later under Environment.
       - key: CAMPFIRE_API_KEY
         sync: false

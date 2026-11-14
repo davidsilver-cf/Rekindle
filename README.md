@@ -18,7 +18,7 @@ Automated billback for Campfire: unbilled expenses → allocation → invoicing.
 | Per-deal approvers, Google sign-in, approvals saved in Postgres | ✅ built; needs Google client + database on Render |
 | Live deal list from Campfire; deal setup (billing type, customer, owners/%) edited on the Deals screen | ✅ built; saved in Postgres |
 | Invoice PDF (draft, with supporting detail) | ✅ built; download from the Invoices screen |
-| Invoice creation in Campfire (+ attach the PDF) | planned |
+| Invoice creation in Campfire: create, attach PDF, mark lines Billed | ✅ built; needs REKINDLE_INVOICE_PRODUCT_ID |
 
 ## The screens
 
@@ -120,3 +120,26 @@ The **Deals & allocations** screen lists every **Deals** tag in Campfire, read l
 - **Owners** (Allocation): billback customer, share %, effective from/to. Wherever ownership changes, the owners in force must total 100%.
 
 Setup is saved in Postgres and wins over `config/rekindle.json`, which is now only a starter for the original test deals. Deals are matched by tag ID, so renaming a tag in Campfire keeps its setup. **Without `DATABASE_URL`, setup is lost when Render restarts.**
+
+## Creating invoices
+
+**Invoices** lists each billback customer with what it's still owed. A customer is **Ready** when every deal feeding it is approved and its Billback Customer tag is linked to a Campfire customer. Tick the ones to bill, **Create selected**, check the confirmation page, then **Create in Campfire**. For each customer Rekindle:
+
+1. **Reserves** the bill-line shares in its database. A share already on an invoice is refused, so nothing is billed twice, even with two clicks at once.
+2. **Creates the invoice** in Campfire: one line per deal per recharge category, on the invoice product, with a reference (`RK-…`) in the invoice's reference number.
+3. **Builds the PDF** with Campfire's invoice number and **attaches** it to the invoice.
+4. **Marks the source bill lines** Billed. A split line stays **Allocated Pending Invoice** until every owner's share has been invoiced, then becomes Billed.
+
+**Invoice history** shows every run. If something fails partway:
+
+| Status | Meaning | What to do |
+|---|---|---|
+| Not created | Campfire refused the invoice; the lines were released | Read the reason, fix it, create again |
+| Check Campfire | Rekindle couldn't tell whether Campfire created it | Search Campfire for the `RK-…` reference, then press **It was created** (with its ID) or **It wasn't created** |
+| Created · PDF not attached / lines not marked | The invoice exists; a later step failed | **Retry** finishes it without creating another invoice |
+
+Only admins create invoices, and only with `REKINDLE_WRITE=true`.
+
+**Setup:** `REKINDLE_INVOICE_PRODUCT_ID` = the ID of the Campfire product to put on invoice lines. Its income account should be 13190 Unbilled Receivable, so each invoice debits AR and clears the unbilled balance. Due dates use `invoice.termsDays` in `config/rekindle.json` (0 = due on the invoice date).
+
+Campfire's API only accepts tags on the whole invoice, not on each line, so the invoice's GL lines aren't tagged by deal; the deal is in each line's description and on the PDF.

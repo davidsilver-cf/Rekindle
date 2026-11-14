@@ -14,18 +14,21 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile } from './campfire.js';
 import { processBills } from './process.js';
 import { planBills } from './engine.js';
 import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, loginPage, readFilters } from './ui.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
-import { getStore, StoreError } from './store.js';
-import { dealGroups, withStatus, canDecide } from './approvals.js';
+import { getStore, StoreError, ShareTakenError } from './store.js';
+
+const campfireApi = { createInvoice, uploadFile, getBill, updateBill };
+import { dealGroups, withStatus, canDecide, customerReady } from './approvals.js';
+import { startInvoice, advanceRun, prepareInvoice } from './invoicing.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
@@ -118,15 +121,19 @@ async function handleWebhook(req, res) {
 
 async function screenContext(user) {
   const store = await getStore();
-  const [config, bills] = await Promise.all([loadConfig(), loadBills()]);
-  const plan = planBills(bills, config);
-  const [approvers, decisions] = await Promise.all([store.getApprovers(), store.latestDecisions()]);
+  const [config, bills, invoiced] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares()]);
+  const plan = planBills(bills, config, { invoiced });
+  const [approvers, decisions, runs] = await Promise.all([store.getApprovers(), store.latestDecisions(), store.listRuns(30)]);
   const groups = withStatus(dealGroups(plan, config), approvers, decisions).map((g) => ({ ...g, canDecide: canDecide(user, g) }));
+  const readiness = new Map(plan.customers.map((c) => [c.customer.name, customerReady(c, plan, groups)]));
   return {
     config,
     plan,
     groups,
     approvers,
+    readiness,
+    runs,
+    productMissing: !(Number(process.env.REKINDLE_INVOICE_PRODUCT_ID || config.invoice?.productId) > 0),
     user,
     admin: isAdmin(user),
     storeKind: store.kind,
@@ -162,7 +169,23 @@ const SCREENS = {
     }[r] || null;
     return approvalsPage(ctx, flash);
   },
-  '/invoices': (ctx, url) => invoicesPage(ctx, url.searchParams.get('customer')),
+  '/invoices': (ctx, url) => {
+    const s = url.searchParams;
+    let flash = null;
+    if (s.has('done')) {
+      flash = { ok: n(s, 'failed') === 0 && n(s, 'held') === 0 && n(s, 'partial') === 0, text: [
+        n(s, 'done') ? `Created ${n(s, 'done')} invoice${n(s, 'done') === 1 ? '' : 's'} in Campfire.` : '',
+        n(s, 'partial') ? `${n(s, 'partial')} created but not finished; see Invoice history and press Retry.` : '',
+        n(s, 'held') ? `${n(s, 'held')} need${n(s, 'held') === 1 ? 's' : ''} checking in Campfire; see Invoice history.` : '',
+        n(s, 'failed') ? `${n(s, 'failed')} not created; see Invoice history for why.` : '',
+      ].filter(Boolean).join('\n') };
+    } else if (s.has('nothing')) {
+      flash = { ok: false, text: 'Select at least one customer that is ready to invoice.' };
+    } else if (s.has('retried')) {
+      flash = { ok: s.get('retried') === 'complete', text: s.get('retried') === 'complete' ? 'Finished.' : 'Still not finished; see the message in Invoice history.' };
+    }
+    return invoicesPage(ctx, s.get('customer'), flash);
+  },
 };
 
 async function handle(req, res) {
@@ -234,8 +257,9 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/invoices/pdf') {
     if (!user) return redirect(res, '/login');
-    const [config, bills] = await Promise.all([loadConfig(), loadBills()]);
-    const plan = planBills(bills, config);
+    const store = await getStore();
+    const [config, bills, invoiced] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares()]);
+    const plan = planBills(bills, config, { invoiced });
     const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
     if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
     const pdf = buildInvoicePdf({ customer, plan, branding: config.invoice || {}, invoice: { draft: true } });
@@ -246,6 +270,80 @@ async function handle(req, res) {
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'private, no-store',
     });
+    return res.end(pdf);
+  }
+
+  // ---- Invoicing
+  const invoiceRoute = ['/invoices/confirm', '/invoices/create', '/invoices/retry', '/invoices/resolve'].includes(url.pathname);
+  if (req.method === 'POST' && invoiceRoute) {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can create invoices.');
+    if (demoMode() || !writeEnabled()) return redirect(res, '/invoices');
+    const form = new URLSearchParams(await readBody(req));
+    const store = await getStore();
+
+    if (url.pathname === '/invoices/confirm' || url.pathname === '/invoices/create') {
+      const ctx = await screenContext(user);
+      const names = new Set(form.getAll('customer'));
+      const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && ctx.readiness.get(c.customer.name)?.ready);
+      if (!chosen.length) return redirect(res, '/invoices?nothing=1');
+
+      if (url.pathname === '/invoices/confirm' || form.get('confirm') !== 'yes') {
+        const preview = chosen.map((customer) => ({ customer, ...prepareInvoice({ customer, plan: ctx.plan, config: ctx.config, ref: 'preview' }) }));
+        return html(res, confirmInvoicesPage(ctx, preview));
+      }
+
+      const tally = { done: 0, partial: 0, held: 0, failed: 0 };
+      for (const customer of chosen) {
+        try {
+          const out = await startInvoice({ customer, plan: ctx.plan, config: ctx.config, store, api: campfireApi, user, log: console.log });
+          if (!out.ok) { tally.failed++; console.log(JSON.stringify({ event: 'invoice_blocked', customer: customer.customer.name, problems: out.problems })); continue; }
+          const st = out.run.status;
+          if (st === 'complete') tally.done++;
+          else if (st === 'unknown') tally.held++;
+          else if (st === 'failed') tally.failed++;
+          else tally.partial++;
+        } catch (err) {
+          tally.failed++;
+          console.log(JSON.stringify({ event: 'invoice_error', customer: customer.customer.name, error: err.message, taken: err instanceof ShareTakenError }));
+        }
+      }
+      return redirect(res, `/invoices?done=${tally.done}&partial=${tally.partial}&held=${tally.held}&failed=${tally.failed}`);
+    }
+
+    const run = await store.getRun(Number(form.get('run')));
+    if (!run) return send(res, 404, 'No such invoice run.');
+    const config = await loadConfig();
+
+    if (url.pathname === '/invoices/retry') {
+      if (!['created', 'pdf_attached'].includes(run.status)) return redirect(res, '/invoices');
+      const after = await advanceRun(run.id, { store, api: campfireApi, config, log: console.log });
+      await store.audit(user.email, 'invoice_retry', { ref: run.ref, status: after.status });
+      return redirect(res, `/invoices?retried=${after.status}`);
+    }
+
+    // Resolve a run whose outcome was unknown, after checking Campfire.
+    if (run.status !== 'unknown') return redirect(res, '/invoices');
+    if (form.get('outcome') === 'not_created') {
+      await store.releaseRun(run.id, `Checked in Campfire by ${user.email}: not created. Lines released.`);
+      await store.audit(user.email, 'invoice_resolve', { ref: run.ref, outcome: 'not_created' });
+      return redirect(res, '/invoices');
+    }
+    const id = Number(form.get('campfire_id'));
+    if (!Number.isInteger(id) || id <= 0) return send(res, 400, 'Enter the Campfire invoice ID you found.');
+    await store.updateRun(run.id, { status: 'created', campfire_invoice_id: id, invoice_number: String(id), error: null });
+    await store.audit(user.email, 'invoice_resolve', { ref: run.ref, outcome: 'found', campfireInvoiceId: id });
+    const after = await advanceRun(run.id, { store, api: campfireApi, config, log: console.log });
+    return redirect(res, `/invoices?retried=${after.status}`);
+  }
+
+  const pdfMatch = req.method === 'GET' && url.pathname.match(/^\/invoices\/run\/(\d+)\/pdf$/);
+  if (pdfMatch) {
+    if (!user) return redirect(res, '/login');
+    const run = await (await getStore()).getRun(Number(pdfMatch[1]));
+    if (!run?.pdf) return send(res, 404, 'No PDF for that invoice.');
+    const pdf = Buffer.from(run.pdf);
+    res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="Invoice-${String(run.invoice_number || run.ref).replace(/[^A-Za-z0-9-]+/g, '-')}.pdf"`, 'Content-Length': pdf.length, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' });
     return res.end(pdf);
   }
 
@@ -301,7 +399,7 @@ async function handle(req, res) {
     const note = (form.get('note') || '').trim().slice(0, 500);
     await store.recordDecision({
       dealsTagId: g.deal.dealsTagId, fingerprint: g.fingerprint, decision, actorEmail: user.email,
-      note, amountCents: g.cents, lineIds: g.lines.map((l) => l.lineId),
+      note, amountCents: g.cents, lineIds: g.lines.map((l) => l.lineId), linePrints: g.linePrints,
     });
     await store.audit(user.email, decision, { deal: g.deal.dealsTag, amountCents: g.cents, lines: g.lines.map((l) => l.lineId) });
     return redirect(res, `/approvals?result=${decision}`);

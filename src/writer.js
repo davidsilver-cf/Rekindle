@@ -7,7 +7,7 @@ const WRITABLE = [
   'description', 'tax_description', 'source', 'source_id', 'currency',
 ];
 
-function lineForUpdate(line) {
+export function lineForUpdate(line) {
   const out = {};
   for (const k of WRITABLE) if (k in line) out[k] = line[k];
   // Keep every custom field the line already has.
@@ -56,4 +56,24 @@ export function buildBillUpdate(bill, linePlans) {
   });
 
   return { billId: bill.id, billNumber: bill.bill_number, header: headerForUpdate(bill), lines, changes };
+}
+
+// Set the Billback Status tag on some lines of a bill (replacing whatever
+// status tag they have). statusByLine: Map lineId -> status tag id.
+export function buildStatusUpdate(bill, statusByLine, statusTagIds) {
+  const statusIds = new Set(statusTagIds);
+  const changes = [];
+  const lines = bill.lines.map((line) => {
+    const out = lineForUpdate(line);
+    const want = statusByLine.get(line.id);
+    if (want) {
+      const before = out.tags.find((t) => statusIds.has(t.id));
+      if (!before || before.id !== want) {
+        out.tags = out.tags.filter((t) => !statusIds.has(t.id)).concat({ id: want });
+        changes.push({ lineId: line.id, from: before?.id ?? null, to: want });
+      }
+    }
+    return out;
+  });
+  return changes.length ? { billId: bill.id, billNumber: bill.bill_number, header: headerForUpdate(bill), lines, changes } : null;
 }
