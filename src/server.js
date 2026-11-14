@@ -281,6 +281,11 @@ async function handle(req, res) {
     if (demoMode() || !writeEnabled()) return redirect(res, '/invoices');
     const form = new URLSearchParams(await readBody(req));
     const store = await getStore();
+    // What's been invoiced must survive restarts, or a partly invoiced split
+    // could be billed again. Only tests may use the in-memory store.
+    if (store.kind !== 'postgres' && process.env.REKINDLE_ALLOW_MEMORY_STORE !== 'true') {
+      return send(res, 409, 'Connect the database (DATABASE_URL) before creating invoices, so Rekindle keeps a permanent record of what it has billed.');
+    }
 
     if (url.pathname === '/invoices/confirm' || url.pathname === '/invoices/create') {
       const ctx = await screenContext(user);

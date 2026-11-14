@@ -472,7 +472,8 @@ function historyTable(ctx) {
 export function invoicesPage(ctx, selected, flash = null) {
   const { plan } = ctx;
   const pick = plan.customers.find((c) => c.customer.name === selected) || plan.customers[0];
-  const canCreate = ctx.admin && ctx.write && !ctx.demo;
+  const durable = ctx.storeKind === 'postgres' || process.env.REKINDLE_ALLOW_MEMORY_STORE === 'true';
+  const canCreate = ctx.admin && ctx.write && !ctx.demo && durable;
   const linesById = new Map(plan.lines.map((l) => [l.lineId, l]));
 
   const rows = plan.customers
@@ -514,6 +515,7 @@ export function invoicesPage(ctx, selected, flash = null) {
   if (!ctx.admin) why = 'Only admins can create invoices.';
   else if (ctx.demo) why = 'Demo mode: connect Campfire to create invoices.';
   else if (!ctx.write) why = 'Writing to Campfire is off (REKINDLE_WRITE).';
+  else if (!durable) why = 'Connect the database (DATABASE_URL) first, so Rekindle keeps a permanent record of what it has billed.';
   const setupNote = ctx.productMissing
     ? '<div class="banner bad"><b>Invoice product not set.</b> Set <code>REKINDLE_INVOICE_PRODUCT_ID</code> on Render to the Campfire product whose income account is 13190 Unbilled Receivable, so invoices clear the unbilled balance.</div>'
     : '';

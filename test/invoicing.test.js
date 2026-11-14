@@ -64,7 +64,7 @@ before(async () => {
   Object.assign(process.env, {
     CAMPFIRE_API_KEY: 'fake', CAMPFIRE_BASE_URL: `http://localhost:${fake.address().port}`,
     REKINDLE_ADMIN_TOKEN: 'tok', SESSION_SECRET: 'test-secret', REKINDLE_ADMINS: 'david@campfire.ai',
-    REKINDLE_WRITE: 'true', REKINDLE_INVOICE_PRODUCT_ID: '777',
+    REKINDLE_WRITE: 'true', REKINDLE_INVOICE_PRODUCT_ID: '777', REKINDLE_ALLOW_MEMORY_STORE: 'true',
   });
   delete process.env.DATABASE_URL;
   ({ makeSession } = await import('../src/session.js'));
@@ -205,4 +205,17 @@ test('failures: refused, unknown and PDF failures are handled safely', async () 
   assert.equal(statusOf(9190921), BILLED);
   // Only one Deal XYZ invoice was ever created in Campfire.
   assert.equal(sent.invoices.length - before, 1);
+});
+
+test('without a database, invoices are not offered or created', async () => {
+  delete process.env.REKINDLE_ALLOW_MEMORY_STORE;
+  try {
+    const page = await (await get('/invoices')).text();
+    assert.match(page, /Connect the database \(DATABASE_URL\) first/);
+    assert.equal((page.match(/class="pick"/g) || []).length, 0);
+    const r = await post('/invoices/create', { customer: 'Fund II Co-Invest', confirm: 'yes' });
+    assert.equal(r.status, 409);
+  } finally {
+    process.env.REKINDLE_ALLOW_MEMORY_STORE = 'true';
+  }
 });
