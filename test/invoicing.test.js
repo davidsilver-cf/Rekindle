@@ -115,12 +115,14 @@ const createFor = async (...names) => {
   return fetch(base + '/invoices/create', { method: 'POST', redirect: 'manual', headers: { cookie: admin(), 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
 };
 
-test('customers wait for approval before they can be invoiced', async () => {
+test('unapproved deals are flagged, with links to Approvals, but do not block invoicing', async () => {
   const page = await (await get('/invoices')).text();
-  assert.match(page, /Waiting for approval/);
-  assert.equal((page.match(/class="pick"/g) || []).length, 0);
-  // Creating without approval does nothing.
-  assert.equal((await createFor('Fund I')).headers.get('location'), '/invoices?nothing=1');
+  assert.match(page, /Not all deals approved/);
+  assert.match(page, /Waiting: <a href="\/approvals#deal-\d+">/);
+  assert.equal((page.match(/class="pick"/g) || []).length, 5); // all linked customers can be picked
+  const confirm = await (await post('/invoices/confirm', { customer: 'Fund I' })).text();
+  assert.match(confirm, /includes lines from deals that aren&#39;t approved yet|includes lines from deals that aren't approved yet/);
+  assert.match(confirm, /Includes unapproved deals/);
   assert.equal(sent.invoices.length, 0);
 });
 

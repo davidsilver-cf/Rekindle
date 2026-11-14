@@ -707,7 +707,9 @@ async function handle(req, res) {
     if (url.pathname === '/invoices/confirm' || url.pathname === '/invoices/create') {
       const ctx = byBillingGroup({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/invoices' }, form.get('group'));
       const names = new Set(form.getAll('customer'));
-      const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && ctx.readiness.get(c.customer.name)?.ready);
+      // Approval is advice, not a gate: people decide when lines are charged.
+      // The screens and the confirmation page say which deals aren't approved.
+      const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && c.customer.customerId);
       const back = ctx.billingGroupFilter ? `&group=${encodeURIComponent(ctx.billingGroupFilter)}` : '';
       if (!chosen.length) return redirect(res, `/invoices?nothing=1${back}`);
       // Invoice date: today unless the person picked another (backdating allowed).

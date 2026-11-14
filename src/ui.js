@@ -533,6 +533,14 @@ function historyTable(ctx) {
 <div class="scroll"><table><thead><tr><th>When</th><th>Customer</th><th>Invoice</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 
+// Waiting deals as links to their row on Approvals.
+function waitingLinks(ctx, names) {
+  return names.map((n) => {
+    const d = ctx.config.deals.find((x) => x.dealsTag === n);
+    return d ? `<a href="/approvals#deal-${esc(d.dealsTagId)}">${esc(n)}</a>` : esc(n);
+  }).join(', ');
+}
+
 export function invoicesPage(ctx, selected, flash = null) {
   const { plan } = ctx;
   const pick = plan.customers.find((c) => c.customer.name === selected) || plan.customers[0];
@@ -553,10 +561,10 @@ export function invoicesPage(ctx, selected, flash = null) {
       const deals = [...new Set(c.sources.map((s) => linesById.get(s.lineId)?.dealsTag))];
       const linked = Boolean(c.customer.customerId);
       let status;
-      if (!r.ready) status = `${pill('Waiting for approval', 'background:var(--warn-tint);color:var(--warn)')}<div class="small muted" style="white-space:normal">${esc(r.waitingOn.join(', '))}</div>`;
-      else if (!linked) status = `${pill('Not linked to a Campfire customer', 'background:var(--bad-tint);color:var(--bad)')}`;
-      else status = pill('Ready', 'background:var(--good-tint);color:var(--good)');
-      const ok = r.ready && linked;
+      if (!linked) status = `${pill('Not linked to a Campfire customer', 'background:var(--bad-tint);color:var(--bad)')}`;
+      else if (!r.ready) status = `${pill('Not all deals approved', 'background:var(--warn-tint);color:var(--warn)')}<div class="small muted" style="white-space:normal">Waiting: ${waitingLinks(ctx, r.waitingOn)}</div>`;
+      else status = pill('Approved · ready', 'background:var(--good-tint);color:var(--good)');
+      const ok = linked;
       const box = canCreate && ok
         ? `<input type="checkbox" class="pick" name="customer" value="${esc(c.customer.name)}" form="create-form" aria-label="Select ${esc(c.customer.name)}">`
         : `<input type="checkbox" disabled aria-label="${esc(c.customer.name)} can't be invoiced yet">`;
@@ -595,7 +603,7 @@ export function invoicesPage(ctx, selected, flash = null) {
 
   return layout({
     active: 'invoices', title: 'Invoices', ctx, scripts: ['/static/queue.js'],
-    body: `${flashHtml}${setupNote}<div class="head"><div><h1 class="title">Create invoices</h1><p class="sub">One invoice per billback customer, once every deal feeding it is approved.</p></div>
+    body: `${flashHtml}${setupNote}<div class="head"><div><h1 class="title">Create invoices</h1><p class="sub">One invoice per billback customer. Approval status is shown for each; you decide when to invoice.</p></div>
 ${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm" class="inline">${grp ? `<input type="hidden" name="group" value="${esc(grp)}">` : ''}<label class="filter" style="min-width:160px"><span>Invoice date</span><input type="date" name="date" value="${esc(todayLocal())}" required></label><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
 ${why && ctx.admin ? `<p class="sub" style="margin:0">${esc(why)}</p>` : ''}
 ${groupBar}${grp ? `<p class="sub" style="margin:0">Showing only <b>${esc(groupName || grp)}</b> deals. Invoices created now include only their lines; other deals' lines stay for their own invoices.</p>` : ''}
@@ -613,12 +621,16 @@ export function confirmInvoicesPage(ctx, chosen, date = null) {
   const total = chosen.reduce((s, c) => s + c.customer.cents, 0);
   const rows = chosen.map((c) => `<tr><td><b>${esc(c.customer.customer.name)}</b><input type="hidden" name="customer" value="${esc(c.customer.customer.name)}"></td>
 <td>${c.request.lines.length}</td><td>${esc(c.request.invoice_date)}</td><td>${esc(c.request.due_date)}</td><td class="num">${usd(c.customer.cents)}</td>
-<td>${c.problems.length ? `<span class="no" style="white-space:normal">${esc(c.problems.join(' '))}</span>` : pill('Ready', 'background:var(--good-tint);color:var(--good)')}</td></tr>`).join('');
+<td>${c.problems.length ? `<span class="no" style="white-space:normal">${esc(c.problems.join(' '))}</span>` : (ctx.readiness?.get(c.customer.customer.name)?.ready === false
+  ? `${pill('Includes unapproved deals', 'background:var(--warn-tint);color:var(--warn)')}<div class="small muted" style="white-space:normal">${waitingLinks(ctx, ctx.readiness.get(c.customer.customer.name).waitingOn)}</div>`
+  : pill('Approved · ready', 'background:var(--good-tint);color:var(--good)'))}</td></tr>`).join('');
+  const unapproved = chosen.filter((c) => ctx.readiness?.get(c.customer.customer.name)?.ready === false).length;
   const blocked = chosen.some((c) => c.problems.length);
   return layout({
     active: 'invoices', title: 'Confirm invoices', ctx,
     body: `<div><span class="small muted">Invoices › Confirm</span><h1 style="margin-top:6px">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} · ${usd(total)}</h1>
 <p class="sub">This creates real invoices in Campfire, attaches each PDF, and marks the source bill lines Billed. It can't be undone from Rekindle; a mistake is fixed by voiding the invoice in Campfire.</p></div>
+${unapproved ? `<div class="banner demo"><b>${unapproved} of these invoice${unapproved === 1 ? ' includes' : 's include'} lines from deals that aren't approved yet.</b> You can still create ${unapproved === 1 ? 'it' : 'them'}; check the deals named below first.</div>` : ''}
 ${date && date < todayLocal() ? `<div class="banner demo"><b>Backdated to ${esc(date)}.</b> The invoices post in that period; make sure it isn't locked in Campfire.</div>` : ''}
 <form method="post" action="/invoices/create" class="card">${date ? `<input type="hidden" name="date" value="${esc(date)}">` : ''}${ctx.billingGroupFilter ? `<input type="hidden" name="group" value="${esc(ctx.billingGroupFilter)}">` : ''}<div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 <div class="pad" style="flex-direction:row;gap:8px">${blocked ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} in Campfire</button>`}<a class="btn" href="/invoices${ctx.billingGroupFilter ? `?group=${encodeURIComponent(ctx.billingGroupFilter)}` : ''}">Cancel</a></div></form>`,
