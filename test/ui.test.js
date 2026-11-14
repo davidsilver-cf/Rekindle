@@ -57,3 +57,15 @@ test('queue shows checkboxes only for lines that can be stamped, and only when w
   assert.match(page, /id="select-all"/);
   assert.equal((queuePage(ctx()).match(/class="pick"/g) || []).length, 0); // demo: no selection
 });
+
+test('deal setup form: Add owner control, one spare row, clear buttons, script loaded', () => {
+  const admin = { ...ctx(), admin: true, approvers: new Map() };
+  const page = dealsPage(admin, 'Fund II');
+  assert.match(page, /id="add-owner"/);
+  assert.match(page, /<script src="\/static\/deals\.js" defer><\/script>/);
+  // Fund II has 3 owners, so the form shows those 3 plus one spare row.
+  assert.equal((page.match(/name="owner_\d+_customer"/g) || []).length, 4);
+  assert.equal((page.match(/class="btn sm remove-owner"/g) || []).length, 4);
+  // A deal with no owners still starts with 3 blank rows.
+  assert.equal((dealsPage(admin, 'Fund I').match(/name="owner_\d+_customer"/g) || []).length, 3);
+});

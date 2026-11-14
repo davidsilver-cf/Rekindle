@@ -20,6 +20,7 @@ const typePill = (t) => (t ? pill(t, TYPE_STYLE[t] || TYPE_STYLE.Expense) : '');
 const CSS = `
 :root{--ink:#1C1B19;--quiet:#5F5B55;--line:#E6E2DC;--soft:#EFECE7;--bg:#F7F5F2;--accent:#C2410C;--accent-dark:#9A3412;--accent-tint:#FDECE3;--good:#166534;--good-tint:#E7F4EC;--warn:#854D0E;--warn-tint:#FEF6E0}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--ink);background:var(--bg)}
 a{color:var(--accent)}a:hover{color:var(--accent-dark)}
 .shell{display:flex;flex-wrap:wrap;min-height:100vh}
@@ -81,6 +82,7 @@ a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:#D6D
 .decide .row{display:flex;gap:8px;flex-wrap:wrap}
 .who{display:flex;flex-direction:column;gap:2px}
 .btn.sm{min-height:36px;padding:0 12px;font-size:13px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 table.owners td{padding:6px 8px}
 table.owners select,table.owners input{min-height:36px;padding:0 8px;border:1px solid #D6D1C9;border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:var(--ink)}
 .dealrow b{display:block;font-size:14px}.dealrow span{font-size:12px;color:var(--quiet)}
@@ -242,7 +244,7 @@ function setupForm(ctx, deal, owners, draft) {
   const rows = draft
     ? draft.owners.map((o) => ({ customerTagId: String(o.customerTagId || ''), percent: o.percent || '', start: o.start || '', end: o.end || '' }))
     : owners.map((o) => ({ customerTagId: String(o.customer?.billbackTagId ?? ''), percent: String(o.percent), start: o.start || '', end: o.end || '' }));
-  while (rows.length < owners.length + 3 && rows.length < 20) rows.push({ customerTagId: '', percent: '', start: '', end: '' });
+  while ((rows.length < owners.length + 1 || rows.length < 3) && rows.length < 20) rows.push({ customerTagId: '', percent: '', start: '', end: '' });
 
   const custOptions = (selected) => `<option value="">Choose…</option>${customers
     .map((c) => `<option value="${esc(c.billbackTagId)}"${String(c.billbackTagId) === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}`;
@@ -252,19 +254,21 @@ function setupForm(ctx, deal, owners, draft) {
     .map((o, i) => `<tr><td><select name="owner_${i}_customer" aria-label="Owner ${i + 1} customer">${custOptions(o.customerTagId)}</select></td>
 <td><input name="owner_${i}_percent" type="number" min="0" max="100" step="0.0001" inputmode="decimal" value="${esc(o.percent)}" aria-label="Owner ${i + 1} share percent" style="width:90px"></td>
 <td><input name="owner_${i}_start" type="date" value="${esc(o.start)}" aria-label="Owner ${i + 1} effective from"></td>
-<td><input name="owner_${i}_end" type="date" value="${esc(o.end)}" aria-label="Owner ${i + 1} effective to"></td></tr>`)
+<td><input name="owner_${i}_end" type="date" value="${esc(o.end)}" aria-label="Owner ${i + 1} effective to"></td>
+<td><button type="button" class="btn sm remove-owner" aria-label="Clear owner ${i + 1}" title="Clear this row">Clear</button></td></tr>`)
     .join('');
 
   return `<form class="card pad setup" method="post" action="/deals/setup" style="gap:16px"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}">
 <h2>Setup</h2>
 <div class="inline">
 <label class="filter"><span>Billing type</span><select name="billingType" required>${type ? '' : '<option value="" selected>Choose…</option>'}${typeOptions}</select></label>
-<label class="filter grow"><span>Billed to (Deal or Fund)</span><select name="customer">${custOptions(custId)}</select></label>
+<label class="filter grow" id="billed-to"><span>Billed to (Deal or Fund)</span><select name="customer">${custOptions(custId)}</select></label>
 </div>
 <p class="sub" style="margin:0"><b>Deal</b> and <b>Fund</b> bill 100% to one customer. Several deals can bill the same fund. <b>Allocation</b> splits across the owners below. <b>Expense</b> isn't billed back.</p>
-<div><h2 style="font-size:14px;margin-bottom:8px">Owners (Allocation only)</h2>
-<div class="scroll"><table class="owners"><thead><tr><th>Billback customer</th><th>Share %</th><th>Effective from</th><th>Effective to</th></tr></thead><tbody>${ownerRows}</tbody></table></div>
-<p class="sub" style="margin:8px 0 0">Leave dates blank for "from the start" and "still active". To change ownership, put an end date on the old rows and add new rows starting the next day. Clear a row to remove it.</p></div>
+<div id="owners-section"><h2 style="font-size:14px;margin-bottom:8px">Owners (Allocation only)</h2>
+<div class="scroll"><table class="owners"><thead><tr><th>Billback customer</th><th>Share %</th><th>Effective from</th><th>Effective to</th><th><span class="sr-only">Clear</span></th></tr></thead><tbody id="owner-rows" data-max="20">${ownerRows}</tbody></table></div>
+<div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn sm" id="add-owner">Add owner</button><span id="owner-total" class="small muted" aria-live="polite"></span></div>
+<p class="sub" style="margin:8px 0 0">Leave dates blank for "from the start" and "still active". To change ownership, put an end date on the old rows and add new rows starting the next day. Clear a row to remove it. Need more than 20 owners? Ask for the limit to be raised.</p></div>
 ${customers.length ? '' : '<div class="banner bad">No Billback Customer tags found in Campfire. Create one per customer first.</div>'}
 <div><button class="btn primary" type="submit">Save setup</button></div></form>`;
 }
@@ -314,7 +318,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
 
   const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}">${esc(flash.text)}</div>` : '';
   return layout({
-    active: 'deals', title: 'Deals & allocations', ctx,
+    active: 'deals', title: 'Deals & allocations', ctx, scripts: ['/static/deals.js'],
     body: `${flashHtml}<div class="head"><div><h1>Deals &amp; allocations</h1><p class="sub">Every Deals tag in ${ctx.demo ? 'the demo data' : 'Campfire'}. Its billing type decides who gets invoiced.</p></div>
 ${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setup`, 'background:#FDECEC;color:#991B1B;font-size:13px;padding:6px 12px') : pill('All deals set up', 'background:var(--good-tint);color:var(--good);font-size:13px;padding:6px 12px')}</div>
 <div class="split"><div class="card side" style="overflow:hidden"><div class="cardhead"><span class="small muted"><b>${deals.length} deals</b></span></div>${list}</div>

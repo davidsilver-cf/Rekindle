@@ -30,6 +30,7 @@ import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
   '/static/queue.js': { file: '../public/queue.js', type: 'text/javascript; charset=utf-8' },
+  '/static/deals.js': { file: '../public/deals.js', type: 'text/javascript; charset=utf-8' },
 };
 const BILL_TOPICS = new Set(['Bill.created', 'Bill.updated']);
 const OAUTH_COOKIE = 'rekindle_oauth';
