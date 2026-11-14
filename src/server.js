@@ -134,6 +134,7 @@ async function screenContext(user) {
     readiness,
     runs,
     productMissing: !(Number(process.env.REKINDLE_INVOICE_PRODUCT_ID || config.invoice?.productId) > 0),
+    productValue: (process.env.REKINDLE_INVOICE_PRODUCT_ID || '').trim(),
     user,
     admin: isAdmin(user),
     storeKind: store.kind,

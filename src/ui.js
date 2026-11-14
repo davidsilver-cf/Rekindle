@@ -516,9 +516,10 @@ export function invoicesPage(ctx, selected, flash = null) {
   else if (ctx.demo) why = 'Demo mode: connect Campfire to create invoices.';
   else if (!ctx.write) why = 'Writing to Campfire is off (REKINDLE_WRITE).';
   else if (!durable) why = 'Connect the database (DATABASE_URL) first, so Rekindle keeps a permanent record of what it has billed.';
-  const setupNote = ctx.productMissing
-    ? '<div class="banner bad"><b>Invoice product not set.</b> Set <code>REKINDLE_INVOICE_PRODUCT_ID</code> on Render to the Campfire product whose income account is 13190 Unbilled Receivable, so invoices clear the unbilled balance.</div>'
-    : '';
+  const setupNote = !ctx.productMissing ? ''
+    : ctx.productValue
+      ? `<div class="banner bad"><b>Invoice product isn't a number.</b> <code>REKINDLE_INVOICE_PRODUCT_ID</code> is "${esc(ctx.productValue.slice(0, 60))}". Use the product's number (e.g. 699767), not its long ID.</div>`
+      : '<div class="banner bad"><b>Invoice product not set.</b> Set <code>REKINDLE_INVOICE_PRODUCT_ID</code> on Render to the number of the Campfire product used on invoice lines. Its Invoice Credit Account should be 13190 Unbilled Receivable, so invoices clear the unbilled balance.</div>';
   const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}" style="white-space:pre-line">${esc(flash.text)}</div>` : '';
 
   return layout({

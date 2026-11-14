@@ -80,3 +80,11 @@ test('menu shows a red count of deals needing setup, and none when all are set u
   assert.match(page, /Deals &amp; allocations<\/span><span class="pill" title="2 deals need setup" style="background:#991B1B;color:#fff">2/);
   assert.doesNotMatch(queuePage(ctx()), /need(s)? setup"/);
 });
+
+test('invoice product banner: missing vs not a number', () => {
+  assert.match(invoicesPage({ ...ctx(), productMissing: true, productValue: '' }), /Invoice product not set/);
+  const uuid = invoicesPage({ ...ctx(), productMissing: true, productValue: 'fdaf0043-481f-4302-b4e0-b39306549c79' });
+  assert.match(uuid, /Invoice product isn't a number/);
+  assert.match(uuid, /not its long ID/);
+  assert.doesNotMatch(invoicesPage({ ...ctx(), productMissing: false }), /Invoice product/);
+});

@@ -29,7 +29,7 @@ const productId = (config) => Number(process.env.REKINDLE_INVOICE_PRODUCT_ID || 
 export function prepareInvoice({ customer, plan, config, date = todayET(), ref }) {
   const problems = [];
   const product = productId(config);
-  if (!product) problems.push('No invoice product is set (REKINDLE_INVOICE_PRODUCT_ID). Choose the Campfire product whose income account is 13190 Unbilled Receivable.');
+  if (!product) problems.push('No invoice product is set (REKINDLE_INVOICE_PRODUCT_ID). Use the number of the Campfire product whose Invoice Credit Account is 13190 Unbilled Receivable.');
   const clientId = customer.customer.customerId;
   if (!clientId) problems.push(`"${customer.customer.name}" isn't linked to a Campfire customer. Link its Billback Customer tag to the customer in Campfire.`);
 

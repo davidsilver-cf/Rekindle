@@ -140,6 +140,6 @@ Setup is saved in Postgres and wins over `config/rekindle.json`, which is now on
 
 Only admins create invoices, and only with `REKINDLE_WRITE=true`.
 
-**Setup:** `REKINDLE_INVOICE_PRODUCT_ID` = the ID of the Campfire product to put on invoice lines. Its income account should be 13190 Unbilled Receivable, so each invoice debits AR and clears the unbilled balance. Due dates use `invoice.termsDays` in `config/rekindle.json` (0 = due on the invoice date).
+**Setup:** `REKINDLE_INVOICE_PRODUCT_ID` = the **number** of the Campfire product to put on invoice lines (not its long UUID). On that product set **Invoice Credit Account** = 13190 Unbilled Receivable, untick **Recognize Revenue?** and **MRR item**, so each invoice posts Dr Accounts Receivable / Cr 13190 and clears the unbilled balance. (Left blank, the Invoice Credit Account falls back to deferred revenue.) Due dates use `invoice.termsDays` in `config/rekindle.json` (0 = due on the invoice date).
 
 Campfire's API only accepts tags on the whole invoice, not on each line, so the invoice's GL lines aren't tagged by deal; the deal is in each line's description and on the PDF.
