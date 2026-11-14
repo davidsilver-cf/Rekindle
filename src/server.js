@@ -14,7 +14,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName, entityInvoiceMessage } from './campfire.js';
 import { validateNewDeal, createDeal } from './newdeal.js';
 import { waitingLines, prepareReclass, startReclass, advanceReclass, todayISO, matchAccount } from './reclass.js';
 import { processBills } from './process.js';
@@ -30,9 +30,9 @@ import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discover
 import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
 import { getStore, StoreError, ShareTakenError } from './store.js';
 
-const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice, createJournalEntry };
+const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice, createJournalEntry, entityInvoiceMessage };
 import { dealGroups, withStatus, canDecide, customerReady } from './approvals.js';
-import { startInvoice, advanceRun, prepareInvoice, retagRun } from './invoicing.js';
+import { startInvoice, advanceRun, prepareInvoice, retagRun, paymentInfoFor } from './invoicing.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
@@ -686,7 +686,8 @@ async function handle(req, res) {
     const plan = invoiceView(await screenContext(user), url.searchParams.get('group')).plan;
     const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
     if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
-    const pdf = buildInvoicePdf({ customer, plan, branding: config.invoice || {}, invoice: { draft: true } });
+    const paymentInfo = await paymentInfoFor(customer, plan, { config, api: campfireApi, log: console.log });
+    const pdf = buildInvoicePdf({ customer, plan, branding: { ...(config.invoice || {}), ...(paymentInfo ? { paymentInfo } : {}) }, invoice: { draft: true } });
     res.writeHead(200, {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${invoiceFilename(customer.customer.name)}"`,

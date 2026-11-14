@@ -63,6 +63,7 @@ export function invoiceData({ customer, plan, branding = {}, invoice = {} }) {
     fromLines: branding.fromAddress || [],
     remitTo: branding.remitTo || [],
     footer: branding.footer || '',
+    paymentInfo: String(branding.paymentInfo || '').trim(),
     accent: branding.accentColor || '#C2410C',
     customer: customer.customer,
     number: invoice.number || null,
@@ -177,6 +178,19 @@ export function buildInvoicePdf(args) {
 
   top += 30;
   p.text(M, top, 'Expenses are billed at cost. Each amount is traced to its source bill below.', { size: 9, color: QUIET });
+
+  // ---- Payment information: the entity's Invoice Message from Campfire
+  if (d.paymentInfo) {
+    const lines = d.paymentInfo.split(/\r?\n/).flatMap((t) => (t.trim() ? wrap(t, 476, 9.5) : [''])).slice(0, 24);
+    const h = 34 + lines.length * 13;
+    top += 24;
+    if (top + h > BOTTOM) { p = newPage(); top = 60; }
+    p.rect(M, top, 504, h, { fill: TINT });
+    p.rect(M, top, 3, h, { fill: d.accent });
+    p.text(M + 14, top + 18, 'PAYMENT INFORMATION', { size: 8, font: 'bold', color: QUIET });
+    lines.forEach((t, i) => p.text(M + 14, top + 34 + i * 13, t, { size: 9.5 }));
+    top += h - 10;
+  }
 
   // ---- Supporting detail
   const cols = [

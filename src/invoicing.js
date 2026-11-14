@@ -37,7 +37,7 @@ export function invoiceLineTags(sourceTags, customerTagId, config) {
 const productId = (config) => Number(process.env.REKINDLE_INVOICE_PRODUCT_ID || config.invoice?.productId) || null;
 
 // Everything needed to create one customer's invoice, or the reasons it can't be.
-export function prepareInvoice({ customer, plan, config, date = todayET(), ref }) {
+export function prepareInvoice({ customer, plan, config, date = todayET(), ref, paymentInfo = null }) {
   const problems = [];
   const product = productId(config);
   if (!product) problems.push('No invoice product is set (REKINDLE_INVOICE_PRODUCT_ID). Use the number of the Campfire product whose Invoice Credit Account is 13190 Unbilled Receivable.');
@@ -85,7 +85,7 @@ export function prepareInvoice({ customer, plan, config, date = todayET(), ref }
     invoice_date: date,
     due_date: dueDate,
     ref_number: ref,
-    ...(config.invoice?.message ? { message_on_invoice: config.invoice.message } : {}),
+    ...(config.invoice?.message || paymentInfo ? { message_on_invoice: config.invoice?.message || paymentInfo } : {}),
     lines,
   };
 
@@ -100,6 +100,7 @@ export function prepareInvoice({ customer, plan, config, date = todayET(), ref }
     customer: { customer: customer.customer, cents: customer.cents, sources: customer.sources },
     plan: { lines: customer.sources.map((s) => linesById.get(s.lineId)) },
     date,
+    paymentInfo,
   };
 
   return {
@@ -221,8 +222,8 @@ export async function advanceRun(runId, { store, api, config, log = () => {} }) 
 
   if (run.status === 'created') {
     try {
-      const { customer, plan, date } = run.payload.pdfInput;
-      const pdf = buildInvoicePdf({ customer, plan, branding: config.invoice || {}, invoice: { date, number: run.invoice_number, draft: false } });
+      const { customer, plan, date, paymentInfo } = run.payload.pdfInput;
+      const pdf = buildInvoicePdf({ customer, plan, branding: { ...(config.invoice || {}), ...(paymentInfo ? { paymentInfo } : {}) }, invoice: { date, number: run.invoice_number, draft: false } });
       await store.updateRun(run.id, { pdf });
       await api.uploadFile({ model: 'invoice', objectId: run.campfire_invoice_id, filename: invoiceFilename(`${run.invoice_number}-${run.customer_name}`, false), data: pdf });
       await store.updateRun(run.id, { status: 'pdf_attached', error: tagNoteOf(run) });
@@ -265,9 +266,23 @@ export async function advanceRun(runId, { store, api, config, log = () => {} }) 
   return store.getRun(run.id);
 }
 
+// The Payment Information box: the entity's Invoice Message in Campfire, or
+// config.invoice.paymentInfo when set. Never blocks an invoice.
+export async function paymentInfoFor(customer, plan, { config, api, log = () => {} }) {
+  if (config.invoice?.paymentInfo) return config.invoice.paymentInfo;
+  if (!api?.entityInvoiceMessage) return null;
+  const byId = new Map(plan.lines.map((l) => [l.lineId, l]));
+  const entityId = byId.get(customer.sources[0]?.lineId)?.entityId ?? null;
+  try { return await api.entityInvoiceMessage(entityId); } catch (err) {
+    log(JSON.stringify({ event: 'entity_message_failed', entity: entityId, error: err.message }));
+    return null;
+  }
+}
+
 export async function startInvoice({ customer, plan, config, store, api, user, date, log }) {
   const ref = `RK-${Date.now().toString(36).toUpperCase()}-${customer.customer.billbackTagId}`;
-  const prep = prepareInvoice({ customer, plan, config, date, ref });
+  const paymentInfo = await paymentInfoFor(customer, plan, { config, api, log });
+  const prep = prepareInvoice({ customer, plan, config, date, ref, paymentInfo });
   if (prep.problems.length) return { ok: false, problems: prep.problems };
   const id = await store.reserveInvoice({ ...prep.run, created_by: user.email }, prep.items);
   await store.audit(user.email, 'invoice_start', { ref, customer: customer.customer.name, cents: customer.cents, lines: prep.items.map((i) => i.lineId) });

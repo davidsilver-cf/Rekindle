@@ -290,6 +290,29 @@ export async function findCustomerByName(name) {
 
 // All active customers (id, name), paged; cached for five minutes.
 let customersCache = null;
+// An entity's invoice settings (Settings → Entities → Invoice). Campfire's
+// "Invoice Message" is where firms keep payment instructions. Cached 5 minutes.
+const entityCache = new Map();
+export async function getEntity(id) {
+  const hit = entityCache.get(String(id));
+  if (hit && hit.at > Date.now() - 300_000) return hit.row;
+  let row = null;
+  for (const path of [`/coa/api/entity/${id}`, `/coa/api/v1/entity/${id}`]) {
+    try { row = await request(path); break; } catch (err) { if (err.status !== 404 && err.status !== 405) throw err; }
+  }
+  if (!row) {
+    const page = await request('/coa/api/entity', { limit: 500 });
+    row = (Array.isArray(page) ? page : page.results || []).find((e) => String(e.id) === String(id)) || null;
+  }
+  entityCache.set(String(id), { at: Date.now(), row });
+  return row;
+}
+export async function entityInvoiceMessage(id) {
+  if (id === null || id === undefined) return null;
+  const e = await getEntity(id);
+  return String(e?.invoice_message || '').trim() || null;
+}
+
 export async function listCustomers({ fresh = false } = {}) {
   if (!fresh && customersCache && customersCache.at > Date.now() - 300_000) return customersCache.rows;
   const limit = 200;

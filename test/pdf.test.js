@@ -139,3 +139,16 @@ test('three legal fees for one deal: three Campfire invoice lines, one summary l
   assert.equal((text.match(/Legal \x97 reimbursable expenses/g) || []).length, 1);
   assert.ok(text.includes('3 source lines'));
 });
+
+test('PDF shows the entity invoice message as Payment Information, between the summary and the detail', () => {
+  const paymentInfo = 'Payment Instructions – ACH\nBank Name: ANY BANK USA\nPlease include the invoice number in the payment memo.';
+  const buf = buildInvoicePdf({ customer: emp, plan, branding: { ...config.invoice, paymentInfo }, invoice: { date: '2026-11-13' } });
+  const text = pageText(buf).join('\n');
+  const at = (t) => text.indexOf(t);
+  assert.ok(at('PAYMENT INFORMATION') > at('Total due'));
+  assert.ok(at('PAYMENT INFORMATION') < at('Supporting detail'));
+  assert.ok(text.includes('Bank Name: ANY BANK USA'));
+  assert.ok(text.includes('Payment Instructions \u0096 ACH'));
+  const none = pageText(buildInvoicePdf({ customer: emp, plan, branding: config.invoice, invoice: { date: '2026-11-13' } })).join('\n');
+  assert.ok(!none.includes('PAYMENT INFORMATION'));
+});
