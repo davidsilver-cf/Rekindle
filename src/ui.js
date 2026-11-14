@@ -571,12 +571,16 @@ export function confirmInvoicesPage(ctx, chosen) {
 
 export function loginPage(error, { google = false, campfire = false, token = true, embed = false } = {}) {
   if (embed) {
-    // Sign-in pages (Campfire's, Google's) won't open inside a frame: sign in in a new tab, then reload.
+    // Inside Campfire. Campfire's and Google's sign-in pages won't open in a
+    // frame, so: the access token here, or sign in in a new tab and reload.
     return `<!doctype html><html lang="en" class="embedded"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
-<body><div class="panel">${error ? `<div class="banner bad">${esc(error)}</div>` : ''}<div style="display:flex;align-items:center;gap:8px">${FLAME}<b>Rekindle</b></div>
-<p class="sub" style="margin:0">Sign in to Rekindle to see this here.</p>
-<div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="/login" target="_blank" rel="noopener">Sign in to Rekindle</a><a class="btn" href="">Reload</a></div>
-<p class="small muted" style="margin:0">Sign in opens in a new tab. Then come back and press Reload.</p></div></body></html>`;
+<body><div class="panel" style="max-width:420px">${error ? `<div class="banner bad">${esc(error)}</div>` : ''}<div style="display:flex;align-items:center;gap:8px">${FLAME}<b>Rekindle</b></div>
+<p class="sub" style="margin:0">Campfire didn't sign you in to Rekindle automatically.</p>
+${token ? `<form method="post" action="/login" style="display:flex;flex-direction:column;gap:8px"><label for="token" class="small muted">Access token (admins)</label>
+<input id="token" name="token" type="password" autocomplete="current-password" required style="min-height:36px;padding:0 10px;border:1px solid #D6D1C9;border-radius:8px;font:inherit">
+<button class="btn primary" type="submit">Sign in with token</button></form>` : ''}
+<div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="/login" target="_blank" rel="noopener">Sign in in a new tab</a><a class="btn" href="">Reload</a></div>
+<p class="small muted" style="margin:0">After signing in in a new tab, press Reload. If it still asks, your browser is blocking Rekindle's sign-in inside Campfire; use the token here instead.</p></div></body></html>`;
   }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Rekindle · Sign in</title><style>${CSS}</style></head>
 <body><main style="max-width:420px;margin:12vh auto"><div class="card pad" style="gap:16px;padding:28px">${FLAME}<h1>Rekindle</h1>

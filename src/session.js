@@ -38,9 +38,12 @@ export function readSession(value, now = Date.now()) {
 // Over HTTPS the cookie is SameSite=None so Rekindle still knows you when it's
 // shown inside Campfire (panels, navigation). Cross-site POSTs are refused by
 // the server's origin check instead.
+// Set from inside Campfire's frame, the cookie is also Partitioned: browsers
+// that block third-party cookies still keep it, just for Rekindle-in-Campfire.
 export function sessionCookie(value, req, maxAge = TTL_SECONDS) {
   const https = req.headers['x-forwarded-proto'] === 'https';
-  return `${SESSION_COOKIE}=${value}; HttpOnly; ${https ? 'SameSite=None; Secure' : 'SameSite=Lax'}; Path=/; Max-Age=${maxAge}`;
+  const framed = req.headers['sec-fetch-dest'] === 'iframe';
+  return `${SESSION_COOKIE}=${value}; HttpOnly; ${https ? `SameSite=None; Secure${framed ? '; Partitioned' : ''}` : 'SameSite=Lax'}; Path=/; Max-Age=${maxAge}`;
 }
 
 export function cookieValue(req, name) {

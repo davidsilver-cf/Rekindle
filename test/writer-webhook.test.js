@@ -116,3 +116,10 @@ test('stamping selected lines only changes those lines', async () => {
   assert.deepEqual(tags(9190921), [1027801, 1027811, 1027943]); // Deal XYZ untouched
   assert.deepEqual(tags(9337492), [1027811, 1027943, 1028616]); // Employees Only untouched
 });
+
+test('session cookie: SameSite=None over HTTPS, Partitioned when set inside a frame, Lax over plain HTTP', async () => {
+  const { sessionCookie } = await import('../src/session.js');
+  assert.match(sessionCookie('v', { headers: { 'x-forwarded-proto': 'https' } }), /SameSite=None; Secure; Path/);
+  assert.match(sessionCookie('v', { headers: { 'x-forwarded-proto': 'https', 'sec-fetch-dest': 'iframe' } }), /SameSite=None; Secure; Partitioned/);
+  assert.match(sessionCookie('v', { headers: {} }), /SameSite=Lax/);
+});

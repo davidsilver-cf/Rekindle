@@ -297,7 +297,8 @@ test('inside Campfire: panels on bills and invoices, embedded screens, PDF butto
   assert.match(q.headers.get('content-security-policy'), /frame-ancestors 'self' https:\/\/\*\.meetcampfire\.com/);
   // Not signed in, inside a frame: sign in opens in a new tab.
   page = await (await fetch(`${base}/login`, { headers: { 'sec-fetch-dest': 'iframe' } })).text();
-  assert.match(page, /target="_blank"[^>]*>Sign in to Rekindle/);
+  assert.match(page, /target="_blank"[^>]*>Sign in in a new tab/);
+  assert.match(page, /action="\/login"/);
   // A form posted from another site is refused even with a valid session.
   const evil = await fetch(`${base}/invoices/retag`, { method: 'POST', redirect: 'manual', headers: { cookie: admin(), origin: 'https://evil.example', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'run=1' });
   assert.equal(evil.status, 403);
