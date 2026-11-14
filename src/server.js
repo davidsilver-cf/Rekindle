@@ -914,6 +914,39 @@ async function handle(req, res) {
     return redirect(res, `/deals?deal=${encodeURIComponent(deal.dealsTag)}&saved=1`);
   }
 
+  // Change an Allocation deal's split from a date.
+  if (req.method === 'POST' && url.pathname === '/deals/change-split') {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can change deal setup.');
+    const form = new URLSearchParams(await readBody(req));
+    const config = await loadConfig();
+    const deal = config.deals.find((d) => d.dealsTagId === Number(form.get('deal')));
+    if (!deal) return send(res, 400, 'Unknown deal.');
+    const date = form.get('date') || '';
+    const fail = async (text) => html(res, dealsPage({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/deals' }, deal.dealsTag, { ok: false, split: true, text }), 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail('Pick the date the new split starts.');
+    const fresh = [];
+    for (let i = 0; i < 20; i++) {
+      const c = form.get(`new_${i}_customer`);
+      const pct = form.get(`new_${i}_percent`);
+      if (!c && !pct) continue;
+      fresh.push({ customerTagId: c, percent: pct, start: date, end: '' });
+    }
+    if (!fresh.length) return fail('Add at least one new owner.');
+    const dayBefore = new Date(Date.parse(date) - 864e5).toISOString().slice(0, 10);
+    const kept = [];
+    for (const o of config.allocations.filter((a) => a.dealsTagId === deal.dealsTagId)) {
+      if (o.start && o.start >= date) continue; // replaced by the new split
+      const end = !o.end || o.end >= date ? dayBefore : o.end;
+      kept.push({ customerTagId: String(o.customer?.billbackTagId ?? ''), percent: String(o.percent), start: o.start || '', end });
+    }
+    const result = validateSetup({ billingType: 'Allocation', owners: [...kept, ...fresh] }, config.billbackCustomers);
+    if (result.errors.length) return fail(result.errors.join(' '));
+    const store = await getStore();
+    await store.saveDealSetup(deal.dealsTagId, deal.dealsTag, result.setup, result.owners, user.email);
+    return redirect(res, `/deals?deal=${encodeURIComponent(deal.dealsTag)}&saved=1`);
+  }
+
   if (req.method === 'POST' && url.pathname === '/deals/approver') {
     if (!user) return redirect(res, '/login');
     if (!isAdmin(user)) return send(res, 403, 'Only admins can change approvers.');

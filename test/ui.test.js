@@ -16,7 +16,7 @@ test('screens show the expected totals', () => {
   const approvals = approvalsPage(ctx());
   for (const amt of ['$10,000.00', '$9,600.00', '$8,000.00', '$2,600.00', '$1,800.00']) assert.ok(approvals.includes(amt), amt);
   assert.match(invoicesPage(ctx(), 'Fund II Employees Only'), /\$600\.00/);
-  assert.match(dealsPage(ctx(), 'Fund II'), /Active total 100% · OK/);
+  assert.match(dealsPage(ctx(), 'Fund II'), /Open-ended rows total 100% · OK/);
 });
 
 test('values from Campfire are escaped', () => {
@@ -109,4 +109,18 @@ test('inside Campfire the page title is hidden (Campfire shows it); the queue ha
   assert.match(page, /<h1 class="title">Billback Queue<\/h1><p class="sub">Deal expenses waiting to be billed back\.<\/p>/);
   assert.match(page, /\.embedded h1\.title\{display:none\}/);
   assert.match(queuePage(ctx()), /<title>Rekindle · Billback Queue<\/title>/);
+});
+
+test('allocation splits over time: periods from effective dates, and Change the split form', async () => {
+  const { splitPeriods } = await import('../src/ui.js');
+  const A = { name: 'Main', billbackTagId: 1 }, B = { name: 'Co', billbackTagId: 2 };
+  const owners = [
+    { customer: A, percent: 80, start: null, end: '2026-06-30' }, { customer: B, percent: 20, start: null, end: '2026-06-30' },
+    { customer: A, percent: 70, start: '2026-07-01', end: null }, { customer: B, percent: 30, start: '2026-07-01', end: null },
+  ];
+  const p = splitPeriods(owners);
+  assert.deepEqual(p.map((x) => [x.from, x.to, x.total, x.rows.map((r) => r.percent)]), [[null, '2026-06-30', 100, [80, 20]], ['2026-07-01', null, 100, [70, 30]]]);
+  const page = dealsPage({ ...ctx(), admin: true, approvers: new Map() }, 'Fund II');
+  assert.match(page, /Splits over time/);
+  assert.match(page, /action="\/deals\/change-split"/);
 });

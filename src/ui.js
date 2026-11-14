@@ -51,6 +51,10 @@ h1{margin:0;font-size:26px}h2{margin:0;font-size:16px}
 .head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+table.owners{table-layout:fixed;width:100%}table.owners th,table.owners td{padding-left:4px;padding-right:4px}
+table.owners select,table.owners input{width:100%;min-width:0;box-sizing:border-box}
+table.owners col.c-cust{width:30%}table.owners col.c-pct{width:15%}table.owners col.c-date{width:23%}table.owners col.c-x{width:9%}
+@media (max-width:700px){table.owners{table-layout:auto;min-width:640px}}
 .embedded h1.title{display:none}.embedded h1.title+.sub{margin-top:0;font-size:20px;font-weight:600;color:var(--ink);line-height:1.3}
 .embedded .shell{display:block;min-height:0}.embedded main{padding:16px 20px;gap:16px}
 .tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--line);align-items:center}
@@ -106,7 +110,7 @@ a.kpi.link{text-decoration:none;color:inherit}a.kpi.link:hover{border-color:var(
 .btn.sm{min-height:36px;padding:0 12px;font-size:13px}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 table.owners td{padding:6px 8px}
-table.owners select,table.owners input{min-height:36px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink)}
+table.owners select,table.owners input{min-height:36px;padding:0 6px;border:1px solid var(--field-line);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink)}
 .dealrow b{display:block;font-size:14px}.dealrow span{font-size:12px;color:var(--quiet)}
 `;
 
@@ -302,7 +306,7 @@ const SETUP_SOURCE = {
   none: 'Not set up yet',
 };
 
-function setupForm(ctx, deal, owners, draft) {
+function setupForm(ctx, deal, owners, draft, flash = null) {
   const customers = ctx.config.billbackCustomers || [];
   const type = draft?.billingType ?? deal.billingType ?? '';
   const custId = String(draft?.customerTagId ?? deal.customer?.billbackTagId ?? '');
@@ -317,10 +321,10 @@ function setupForm(ctx, deal, owners, draft) {
     .map((t) => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`).join('');
   const ownerRows = rows
     .map((o, i) => `<tr><td><select name="owner_${i}_customer" aria-label="Owner ${i + 1} customer">${custOptions(o.customerTagId)}</select></td>
-<td><input name="owner_${i}_percent" type="number" min="0" max="100" step="0.0001" inputmode="decimal" value="${esc(o.percent)}" aria-label="Owner ${i + 1} share percent" style="width:90px"></td>
+<td><input name="owner_${i}_percent" type="number" min="0" max="100" step="0.0001" inputmode="decimal" value="${esc(o.percent)}" aria-label="Owner ${i + 1} share percent"></td>
 <td><input name="owner_${i}_start" type="date" value="${esc(o.start)}" aria-label="Owner ${i + 1} effective from"></td>
 <td><input name="owner_${i}_end" type="date" value="${esc(o.end)}" aria-label="Owner ${i + 1} effective to"></td>
-<td><button type="button" class="btn sm remove-owner" aria-label="Clear owner ${i + 1}" title="Clear this row">Clear</button></td></tr>`)
+<td><button type="button" class="btn sm remove-owner" aria-label="Clear owner ${i + 1}" title="Clear this row" style="padding:0 10px">&times;</button></td></tr>`)
     .join('');
 
   return `<form class="card pad setup" method="post" action="/deals/setup" style="gap:16px"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}">
@@ -331,10 +335,11 @@ function setupForm(ctx, deal, owners, draft) {
 </div>
 <p class="sub" style="margin:0"><b>Deal</b> and <b>Fund</b> bill 100% to one customer. Several deals can bill the same fund. <b>Allocation</b> splits across the owners below. <b>Expense</b> isn't billed back.</p>
 <div id="owners-section"><h2 style="font-size:14px;margin-bottom:8px">Owners (Allocation only)</h2>
-<div class="scroll"><table class="owners"><thead><tr><th>Billback customer</th><th>Share %</th><th>Effective from</th><th>Effective to</th><th><span class="sr-only">Clear</span></th></tr></thead><tbody id="owner-rows" data-max="20">${ownerRows}</tbody></table></div>
+<div class="scroll"><table class="owners"><colgroup><col class="c-cust"><col class="c-pct"><col class="c-date"><col class="c-date"><col class="c-x"></colgroup><thead><tr><th>Billback customer</th><th>Share %</th><th>Effective from</th><th>Effective to</th><th><span class="sr-only">Clear</span></th></tr></thead><tbody id="owner-rows" data-max="20">${ownerRows}</tbody></table></div>
 <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn sm" id="add-owner">Add owner</button><span id="owner-total" class="small muted" aria-live="polite"></span></div>
 <p class="sub" style="margin:8px 0 0">Leave dates blank for "from the start" and "still active". To change ownership, put an end date on the old rows and add new rows starting the next day. Clear a row to remove it. Need more than 20 owners? Ask for the limit to be raised.</p></div>
 ${customers.length ? '' : '<div class="banner bad">No Billback Customer tags found in Campfire. Create one per customer first.</div>'}
+${draft && flash && !flash.ok ? `<div class="banner bad" role="alert">Not saved: ${esc(flash.text)}</div>` : ''}
 <div><button class="btn primary" type="submit">Save setup</button></div></form>`;
 }
 
@@ -370,7 +375,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
 
   let summary = '';
   if (deal.billingType === 'Allocation') {
-    summary = `<div class="card"><div class="cardhead"><div style="display:flex;gap:10px;align-items:center"><h2>Owners</h2>${Math.abs(total - 100) < 1e-9 ? pill('Active total 100% · OK', 'background:var(--good-tint);color:var(--good)') : pill(`Active total ${total}% · fix`, 'background:var(--bad-tint);color:var(--bad)')}</div></div>
+    summary = `${splitsCard(owners)}<div class="card"><div class="cardhead"><div style="display:flex;gap:10px;align-items:center"><h2>Owner rows</h2>${Math.abs(total - 100) < 1e-9 ? pill('Open-ended rows total 100% · OK', 'background:var(--good-tint);color:var(--good)') : pill(`Open-ended rows total ${total}%`, 'background:var(--warn-tint);color:var(--warn)')}</div></div>
 <div class="scroll"><table><thead><tr><th>Billback customer</th><th class="num">Share</th><th>Effective from</th><th>Effective to</th></tr></thead><tbody>${ownerRows || '<tr><td colspan="4" class="muted">No owners yet.</td></tr>'}</tbody></table></div>
 <p class="sub" style="padding:0 16px 14px">Bills use the split in force on their bill date. Leftover cents go to the largest share.</p></div>`;
   } else if (deal.billingType === 'Deal' || deal.billingType === 'Fund') {
@@ -393,7 +398,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
 <div><span class="small muted">Billing type</span><div>${deal.billingType ? typePill(deal.billingType) : pill('Needs setup', 'background:var(--bad-tint);color:var(--bad)')}</div></div>
 <div><span class="small muted">Setup</span><div class="small">${esc(SETUP_SOURCE[deal.source] || '')}</div></div>
 <div><span class="small muted">Campfire Deals tag</span><div class="small">ID ${esc(deal.dealsTagId)}</div></div></div>
-${summary}${ctx.admin ? setupForm(ctx, deal, owners, draft) : `<div class="banner demo">Only Rekindle admins can change a deal's setup. You're signed in as <b>${esc(ctx.user?.email || '')}</b>, which isn't in <code>REKINDLE_ADMINS</code>.</div>`}${approverCard(ctx, deal)}</div></div>`,
+${summary}${ctx.admin && deal.billingType === 'Allocation' && owners.length ? changeSplitForm(ctx, deal, owners, flash) : ''}${ctx.admin ? setupForm(ctx, deal, owners, draft, flash) : `<div class="banner demo">Only Rekindle admins can change a deal's setup. You're signed in as <b>${esc(ctx.user?.email || '')}</b>, which isn't in <code>REKINDLE_ADMINS</code>.</div>`}${approverCard(ctx, deal)}</div></div>`,
   });
 }
 
@@ -892,4 +897,53 @@ ${canCreate ? '' : '<div class="banner demo">Creating deals needs a live Campfir
 <label class="filter" style="flex:none;width:100%"><span>Approver email (optional)</span><input name="approver" type="email" value="${esc(form.approver || '')}" placeholder="Who approves this deal's billbacks" style="${field}"></label>
 <div style="display:flex;gap:8px">${canCreate ? '<button class="btn primary" type="submit">Create deal</button>' : '<button class="btn primary" type="button" disabled>Create deal</button>'}<a class="btn" href="/deals">Cancel</a></div></form>`,
   });
+}
+
+// ---- Allocation splits over time
+const dayAfterISO = (d) => new Date(Date.parse(d) + 864e5).toISOString().slice(0, 10);
+const dayBeforeISO = (d) => new Date(Date.parse(d) - 864e5).toISOString().slice(0, 10);
+// The periods a deal's owners define: each with its dates and the owners in force.
+export function splitPeriods(owners) {
+  const points = [...new Set(['', ...owners.map((o) => o.start).filter(Boolean), ...owners.map((o) => o.end).filter(Boolean).map(dayAfterISO)])].sort();
+  const periods = [];
+  points.forEach((p, i) => {
+    const next = points[i + 1];
+    const on = p || '0000-01-01';
+    const rows = owners.filter((o) => (!o.start || o.start <= on) && (!o.end || o.end >= on));
+    if (!rows.length) return;
+    const total = Math.round(rows.reduce((t, o) => t + Number(o.percent), 0) * 10000) / 10000;
+    periods.push({ from: p || null, to: next ? dayBeforeISO(next) : null, rows, total });
+  });
+  return periods;
+}
+
+function splitsCard(owners) {
+  const periods = splitPeriods(owners);
+  if (!periods.length) return '';
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const items = periods.map((p) => {
+    const now = (!p.from || p.from <= today) && (!p.to || p.to >= today);
+    const when = `${p.from ? `From ${esc(p.from)}` : 'From the start'}${p.to ? ` to ${esc(p.to)}` : ' onwards'}`;
+    const ok = Math.abs(p.total - 100) < 1e-6;
+    return `<div class="card pad" style="gap:8px;${now ? 'border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)' : ''}"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>${when}</b>${now ? pill('In force today', 'background:var(--accent-tint);color:var(--accent-dark)') : ''}${ok ? pill('100%', 'background:var(--good-tint);color:var(--good)') : pill(`${p.total}% · must be 100%`, 'background:var(--bad-tint);color:var(--bad)')}</div>
+<div class="small">${p.rows.map((o) => `${esc(o.customer?.name ?? '?')} <b>${esc(o.percent)}%</b>`).join(' · ')}</div></div>`;
+  }).join('');
+  return `<div style="display:flex;flex-direction:column;gap:8px"><h2 style="margin:0">Splits over time</h2><p class="sub" style="margin:0">Each bill line uses the split in force on its bill date.</p>${items}</div>`;
+}
+
+// Change the split from a date: ends today's open rows the day before and
+// starts the new owners on that date.
+function changeSplitForm(ctx, deal, owners, flash) {
+  const customers = ctx.config.billbackCustomers || [];
+  const periods = splitPeriods(owners);
+  const latest = periods[periods.length - 1]?.rows || [];
+  const rows = [...latest.map((o) => ({ id: String(o.customer?.billbackTagId ?? ''), pct: String(o.percent) })), { id: '', pct: '' }, { id: '', pct: '' }];
+  const opts = (sel) => `<option value="">Choose…</option>${customers.map((c) => `<option value="${esc(c.billbackTagId)}"${String(c.billbackTagId) === sel ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}`;
+  const field = 'min-height:36px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)';
+  return `<form class="card pad" method="post" action="/deals/change-split" style="gap:12px"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}">
+<h2 style="margin:0">Change the split</h2><p class="sub" style="margin:0">Pick the date the new split starts and the new owners. Rekindle ends the current owners the day before. Bills dated earlier keep the old split.</p>
+<label class="filter" style="flex:none;max-width:220px"><span>New split starts</span><input type="date" name="date" required style="${field}"></label>
+<div class="scroll"><table><thead><tr><th>Billback customer</th><th>Share %</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td><select name="new_${i}_customer" aria-label="New owner ${i + 1}" style="${field}">${opts(r.id)}</select></td><td><input name="new_${i}_percent" type="number" min="0" max="100" step="0.0001" inputmode="decimal" value="${esc(r.pct)}" aria-label="New owner ${i + 1} share" style="${field};width:110px"></td></tr>`).join('')}</tbody></table></div>
+${flash && !flash.ok && flash.split ? `<div class="banner bad" role="alert">Not saved: ${esc(flash.text)}</div>` : ''}
+<div><button class="btn primary" type="submit">Save new split</button></div></form>`;
 }

@@ -218,3 +218,22 @@ test('New deal: creates the company, its Billback Customer tag and the Deals tag
   const viewer = `rekindle_session=${makeSession({ email: 'pat@campfire.ai', name: 'Pat', via: 'google' })}`;
   assert.equal((await fetch(`${base}/deals/new`, { headers: { cookie: viewer } })).status, 403);
 });
+
+test('Change the split: current owners end the day before, new ones start on the date, and bad totals are refused', async () => {
+  const bad = await post('/deals/change-split', { deal: '1027965', date: '2026-07-01', new_0_customer: '1027955', new_0_percent: '70', new_1_customer: '1027954', new_1_percent: '20' });
+  assert.equal(bad.status, 400);
+  assert.match(await bad.text(), /Not saved: Owners total 90% from 2026-07-01/);
+  const ok = await post('/deals/change-split', { deal: '1027965', date: '2026-07-01', new_0_customer: '1027955', new_0_percent: '70', new_1_customer: '1027954', new_1_percent: '25', new_2_customer: '1027956', new_2_percent: '5' });
+  assert.equal(ok.headers.get('location'), '/deals?deal=Fund%20II&saved=1');
+  const { loadConfig } = await import('../src/config.js');
+  const rows = (await loadConfig()).allocations.filter((a) => a.dealsTagId === 1027965).map((a) => [a.customer.name, a.percent, a.start, a.end]);
+  assert.deepEqual(rows, [
+    ['Fund II Main', 80, null, '2026-06-30'], ['Fund II Co-Invest', 15, null, '2026-06-30'], ['Fund II Employees Only', 5, null, '2026-06-30'],
+    ['Fund II Main', 70, '2026-07-01', null], ['Fund II Co-Invest', 25, '2026-07-01', null], ['Fund II Employees Only', 5, '2026-07-01', null],
+  ]);
+  // A bill dated before the change keeps the old split; one after uses the new one.
+  const { activeOwners } = await import('../src/engine.js');
+  const cfg = await loadConfig();
+  assert.deepEqual(activeOwners(cfg, 1027965, '2026-06-15').map((a) => a.percent), [80, 15, 5]);
+  assert.deepEqual(activeOwners(cfg, 1027965, '2026-07-15').map((a) => a.percent), [70, 25, 5]);
+});
