@@ -324,3 +324,22 @@ test('Link my account: an unlinked Campfire user links once by signing in, then 
   // An expired or forged link token is refused.
   assert.equal((await fetch(`${base}/link/start?t=nope`)).status, 400);
 });
+
+test('Settings: admins add and remove admins; the change applies at once; you cannot remove yourself', async () => {
+  const admin = `rekindle_session=${makeSession({ email: 'david@campfire.ai', name: 'D', via: 'google' })}`;
+  const sam = `rekindle_session=${makeSession({ email: 'sam@campfire.ai', name: 'S', via: 'google' })}`;
+  const form = (path, email, cookie = admin) => fetch(base + path, { method: 'POST', redirect: 'manual', headers: { cookie, 'Content-Type': 'application/x-www-form-urlencoded' }, body: `email=${encodeURIComponent(email)}` });
+  // Sam isn't an admin yet, and can't make himself one.
+  assert.equal((await form('/admins/add', 'sam@campfire.ai', sam)).status, 403);
+  let page = await (await fetch(`${base}/settings`, { headers: { cookie: admin } })).text();
+  assert.match(page, /<h2 style="margin:0">Admins<\/h2>/);
+  assert.match(page, /david@campfire\.ai<\/td><td class="muted">Set on Render/);
+  assert.equal((await form('/admins/add', 'Sam@Campfire.ai')).headers.get('location'), '/settings?admin=added');
+  page = await (await fetch(`${base}/settings`, { headers: { cookie: sam } })).text();
+  assert.match(page, /sam@campfire\.ai<\/td><td class="muted">Added by david@campfire\.ai/);
+  assert.match(page, /<span class="small muted">You<\/span>/); // Sam sees himself, with no Remove
+  assert.equal((await form('/admins/remove', 'sam@campfire.ai', sam)).headers.get('location'), '/settings?admin=self');
+  assert.equal((await form('/admins/remove', 'sam@campfire.ai')).headers.get('location'), '/settings?admin=removed');
+  assert.equal((await form('/admins/add', 'x@campfire.ai', sam)).status, 403);
+  assert.equal((await form('/admins/add', 'not-an-email')).headers.get('location'), '/settings?admin=bad');
+});

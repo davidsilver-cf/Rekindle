@@ -50,6 +50,9 @@ ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_tok
   saveUserLink: `INSERT INTO campfire_user_links (campfire_user_id, workspace, email, linked_at) VALUES ($1, $2, $3, now())
 ON CONFLICT (campfire_user_id) DO UPDATE SET workspace = EXCLUDED.workspace, email = EXCLUDED.email, linked_at = now()`,
   deleteUserLink: 'DELETE FROM campfire_user_links WHERE campfire_user_id = $1',
+  admins: 'SELECT email, added_by, added_at FROM rekindle_admins ORDER BY email',
+  addAdmin: 'INSERT INTO rekindle_admins (email, added_by) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING',
+  removeAdmin: 'DELETE FROM rekindle_admins WHERE email = $1',
   runByInvoice: `SELECT id FROM invoice_runs WHERE campfire_invoice_id = $1 ORDER BY id DESC LIMIT 1`,
   invoicesForLines: `SELECT i.line_id, i.customer_tag_id, i.cents, i.percent, r.id AS run_id, r.invoice_number, r.campfire_invoice_id, r.status, r.customer_name
 FROM invoice_items i JOIN invoice_runs r ON r.id = i.run_id WHERE i.line_id = ANY($1::bigint[]) ORDER BY r.id`,
@@ -72,6 +75,7 @@ export function memoryStore() {
   let runSeq = 0;
   let connection = null;
   const userLinks = new Map();
+  const admins = new Map();
   return {
     kind: 'memory',
     async init() {},
@@ -86,6 +90,9 @@ export function memoryStore() {
     async listUserLinks() { return [...userLinks.values()].reverse(); },
     async saveUserLink({ campfireUserId, workspace, email }) { userLinks.delete(String(campfireUserId)); userLinks.set(String(campfireUserId), { campfire_user_id: String(campfireUserId), workspace: workspace == null ? null : String(workspace), email, linked_at: new Date().toISOString() }); },
     async deleteUserLink(id) { userLinks.delete(String(id)); },
+    async listAdmins() { return [...admins.values()].sort((a, b) => a.email.localeCompare(b.email)); },
+    async addAdmin(email, by) { if (!admins.has(email)) admins.set(email, { email, added_by: by, added_at: new Date().toISOString() }); },
+    async removeAdmin(email) { admins.delete(email); },
     async getApprovers() { return new Map(approvers); },
     async setApprover(dealsTagId, email, actor) {
       if (email) approvers.set(dealsTagId, email); else approvers.delete(dealsTagId);
@@ -178,6 +185,9 @@ export async function postgresStore(connectionString) {
     async listUserLinks() { return (await q(SQL.userLinks)).rows; },
     async saveUserLink({ campfireUserId, workspace, email }) { await q(SQL.saveUserLink, [String(campfireUserId), workspace == null ? null : String(workspace), email]); },
     async deleteUserLink(id) { await q(SQL.deleteUserLink, [String(id)]); },
+    async listAdmins() { return (await q(SQL.admins)).rows; },
+    async addAdmin(email, by) { await q(SQL.addAdmin, [email, by]); },
+    async removeAdmin(email) { await q(SQL.removeAdmin, [email]); },
     async getApprovers() {
       const { rows } = await q(SQL.approvers);
       return new Map(rows.map((r) => [Number(r.deals_tag_id), r.approver_email]));

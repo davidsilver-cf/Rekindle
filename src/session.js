@@ -62,8 +62,15 @@ export function isAdmin(user) {
   if (user.via === 'token') return true;
   const admins = emails(process.env.REKINDLE_ADMINS);
   if (user.campfireUserId != null && admins.includes(`campfire:${user.campfireUserId}`)) return true;
-  return admins.includes(String(user.email).toLowerCase());
+  const e = String(user.email).toLowerCase();
+  return admins.includes(e) || settingsAdmins.has(e);
 }
+
+// Admins added on the Settings screen, kept in the database; the server
+// refreshes this copy (see refreshAdmins in server.js).
+let settingsAdmins = new Set();
+export const setSettingsAdmins = (list) => { settingsAdmins = new Set(list.map((e) => String(e).toLowerCase())); };
+export const envAdmins = () => emails(process.env.REKINDLE_ADMINS).filter((e) => !e.startsWith('campfire:'));
 
 // Campfire user IDs linked to Rekindle emails: REKINDLE_CAMPFIRE_USERS =
 // "1234=david@firm.com, 5678=jane@firm.com". A linked person signed in from
@@ -91,7 +98,7 @@ export function allowedToSignIn(email) {
   const e = String(email || '').toLowerCase();
   const domain = (process.env.REKINDLE_ALLOWED_DOMAIN || '').toLowerCase().trim();
   const extra = emails(process.env.REKINDLE_ALLOWED_EMAILS);
-  if (extra.includes(e) || emails(process.env.REKINDLE_ADMINS).includes(e)) return true;
+  if (extra.includes(e) || emails(process.env.REKINDLE_ADMINS).includes(e) || settingsAdmins.has(e)) return true;
   return Boolean(domain) && e.endsWith(`@${domain}`);
 }
 

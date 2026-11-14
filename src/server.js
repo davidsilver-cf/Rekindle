@@ -22,7 +22,7 @@ import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
 import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage } from './ui.js';
-import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail, LINK_COOKIE, makeLinkToken, readLinkToken, isUnlinkedCampfireUser } from './session.js';
+import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail, LINK_COOKIE, makeLinkToken, readLinkToken, isUnlinkedCampfireUser, setSettingsAdmins, envAdmins } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
 import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
@@ -256,8 +256,17 @@ const SCREENS = {
   },
 };
 
+// Admins from Settings, re-read from the database at most every 15 seconds.
+let adminsAt = 0;
+async function refreshAdmins(force = false) {
+  if (!force && Date.now() - adminsAt < 15_000) return;
+  adminsAt = Date.now();
+  try { setSettingsAdmins((await (await getStore()).listAdmins()).map((a) => a.email)); } catch { /* keep the last copy */ }
+}
+
 async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
+  await refreshAdmins();
   let user = currentUser(req);
   await connectionLoaded();
   const embed = isEmbedded(req, url);
@@ -409,6 +418,24 @@ async function handle(req, res) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': clearLink(req) });
     return res.end(linkPage({ state: 'done', email, loginOpts }));
   }
+  // Admins managed on Settings.
+  if (req.method === 'POST' && (url.pathname === '/admins/add' || url.pathname === '/admins/remove')) {
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can change admins.');
+    const email = String(new URLSearchParams(await readBody(req)).get('email') || '').trim().toLowerCase();
+    const store = await getStore();
+    if (url.pathname === '/admins/add') {
+      if (!EMAIL_RE.test(email)) return redirect(res, '/settings?admin=bad');
+      await store.addAdmin(email, user.email);
+      await store.audit(user.email, 'admin_added', { email });
+    } else {
+      if (email === String(user.email).toLowerCase()) return redirect(res, '/settings?admin=self');
+      await store.removeAdmin(email);
+      await store.audit(user.email, 'admin_removed', { email });
+    }
+    await refreshAdmins(true);
+    return redirect(res, `/settings?admin=${url.pathname === '/admins/add' ? 'added' : 'removed'}`);
+  }
+
   if (req.method === 'POST' && url.pathname === '/link/remove') {
     if (!isAdmin(user)) return send(res, 403, 'Only admins can unlink people.');
     const id = new URLSearchParams(await readBody(req)).get('campfire_user');
@@ -515,9 +542,14 @@ async function handle(req, res) {
     const conn = connection();
     const s = url.searchParams;
     const flash = s.has('connected') ? { ok: true, text: 'Connected to Campfire. Rekindle now reads and writes with this connection.' }
-      : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' } : null;
+      : s.has('disconnected') ? { ok: true, text: 'Disconnected from Campfire.' }
+      : s.get('admin') === 'added' ? { ok: true, text: 'Admin added. They have admin rights the next time they load a page.' }
+      : s.get('admin') === 'removed' ? { ok: true, text: 'Admin removed.' }
+      : s.get('admin') === 'self' ? { ok: false, text: "You can't remove yourself. Ask another admin." }
+      : s.get('admin') === 'bad' ? { ok: false, text: "That isn't an email address." } : null;
     const links = isAdmin(user) ? await (await getStore()).listUserLinks().catch(() => []) : [];
-    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user, req), links, settings: {
+    const admins = isAdmin(user) ? { settings: await (await getStore()).listAdmins().catch(() => []), env: envAdmins() } : null;
+    return html(res, settingsPage({ ...ctx, embed, theme: res.rekindleTheme, path: '/settings', linkUrl: linkUrlFor(user, req), links, admins, settings: {
       appConfigured: oauthConfigured(),
       apiKey: Boolean(process.env.CAMPFIRE_API_KEY),
       scopesWanted: process.env.CAMPFIRE_OAUTH_SCOPES || '',

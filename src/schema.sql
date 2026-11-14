@@ -123,3 +123,10 @@ CREATE TABLE IF NOT EXISTS campfire_user_links (
   email            text NOT NULL,
   linked_at        timestamptz NOT NULL DEFAULT now()
 );
+
+-- Admins added on the Settings screen (as well as REKINDLE_ADMINS on Render).
+CREATE TABLE IF NOT EXISTS rekindle_admins (
+  email     text PRIMARY KEY,
+  added_by  text NOT NULL,
+  added_at  timestamptz NOT NULL DEFAULT now()
+);

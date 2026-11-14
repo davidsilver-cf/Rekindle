@@ -666,9 +666,22 @@ ${ctx.user?.campfireUserId != null ? `<div class="banner ${ctx.admin ? 'good' : 
 ${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${esc(ctx.loadError)}</div>` : ''}
 <div class="card"><div class="pad"><h2 style="margin:0">Campfire connection</h2>${status}</div>${details}${actions}</div>
 ${st.fallbacks?.length ? `<div class="card"><div class="pad"><h2 style="margin:0">Still using the API key</h2><p class="sub" style="margin:0">Campfire refused the app these calls, so Rekindle made them with <code>CAMPFIRE_API_KEY</code>. Give the Rekindle app the matching permission in Campfire (Settings → Apps), reconnect, and keep the API key until this list stays empty.</p></div><div class="scroll"><table><thead><tr><th>Call</th><th class="num">Times</th><th>Last</th></tr></thead><tbody>${st.fallbacks.map((f) => `<tr><td><code>${esc(f.path)}</code></td><td class="num">${f.count}</td><td>${esc(atET(f.last))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+${ctx.admin && ctx.admins ? adminsCard(ctx.admins, ctx.user) : ''}
 ${ctx.admin ? linkedPeople(ctx.links || []) : ''}
 ${tech}`,
   });
+}
+
+function adminsCard(admins, me) {
+  const mine = String(me?.email || '').toLowerCase();
+  const fromEnv = new Set(admins.env);
+  const rows = [
+    ...admins.settings.filter((a) => !fromEnv.has(a.email)).map((a) => `<tr><td>${esc(a.email)}</td><td class="muted">Added by ${esc(a.added_by)} · ${esc(atET(a.added_at))}</td><td>${a.email === mine ? '<span class="small muted">You</span>' : `<form method="post" action="/admins/remove"><input type="hidden" name="email" value="${esc(a.email)}"><button class="btn sm" type="submit">Remove</button></form>`}</td></tr>`),
+    ...admins.env.map((e) => `<tr><td>${esc(e)}</td><td class="muted">Set on Render (REKINDLE_ADMINS)</td><td><span class="small muted">Change on Render</span></td></tr>`),
+  ].join('');
+  return `<div class="card"><div class="pad"><h2 style="margin:0">Admins</h2><p class="sub" style="margin:0">Admins set up deals, create invoices, connect Campfire and manage people. Anyone signed in with the access token is also an admin.</p></div>
+<div class="scroll"><table><thead><tr><th>Email</th><th>How</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="muted">No admins by email yet.</td></tr>'}</tbody></table></div>
+<form method="post" action="/admins/add" class="pad" style="flex-direction:row;flex-wrap:wrap;gap:8px;align-items:flex-end"><label class="filter grow"><span>Add an admin by email</span><input name="email" type="email" required placeholder="name@firm.com"></label><button class="btn primary" type="submit">Add admin</button></form></div>`;
 }
 
 function linkedPeople(links) {

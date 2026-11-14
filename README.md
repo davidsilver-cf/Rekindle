@@ -86,7 +86,7 @@ Rekindle's own write fires a `Bill.updated` event; the second pass finds nothing
 
 Each deal has an **approver** (set by an admin on the Deals screen). On **Approvals**, the run is grouped by deal; only that deal's approver can **Approve** or **Send back** (with an optional note). A deal with no approver can be decided by an admin. If a deal's lines or amounts change after approval, it shows **Changed since approval** and must be approved again. Invoices are ready once every deal is approved.
 
-People sign in with **Google**. Anyone with an `@REKINDLE_ALLOWED_DOMAIN` address (or listed in `REKINDLE_ALLOWED_EMAILS`) can sign in and view; `REKINDLE_ADMINS` can set approvers. The access token still works as an admin sign-in.
+People sign in with **Google**. Admins can be added on **Settings → Admins** (stored in Postgres) as well as in `REKINDLE_ADMINS`; `REKINDLE_ADMINS` is how the first admin gets in. Anyone with an `@REKINDLE_ALLOWED_DOMAIN` address (or listed in `REKINDLE_ALLOWED_EMAILS`) can sign in and view; `REKINDLE_ADMINS` can set approvers. The access token still works as an admin sign-in.
 
 Approvers, decisions and an audit log are kept in Postgres (`DATABASE_URL`). Without it they're kept in memory and lost on restart; the Approvals screen says so.
 
