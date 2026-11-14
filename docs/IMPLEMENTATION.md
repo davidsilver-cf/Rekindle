@@ -55,6 +55,7 @@ Collect these from the customer before touching Campfire; the deal list is what 
 | An approver per deal | the deal team lead's email | Approvals |
 | Recharge categories | Legal, Travel, Diligence | Invoice grouping and the PDF |
 | Invoice branding | from name, address, remit-to, terms, footer | The PDF |
+| Payment instructions | bank name, account name, routing and account numbers | The PDF's Payment Information box |
 | Who uses Rekindle, and who are admins | finance team emails | Sign-in and permissions |
 
 Also confirm two decisions with the controller:
@@ -79,7 +80,8 @@ Set up the account, tags, field and product Rekindle reads, then note each one's
 3. **Custom field.** Add a bill-line custom field **Default Billing Type** (`custom_field_defaultbillingtype`) with options Deal, Fund, Allocation, Expense. AP can set it by hand; Rekindle fills it when blank.
 4. **Product.** Create **Reimbursable Item** (Products and Services). Set **Invoice Credit Account** = 13190 Unbilled Receivable, and untick **Recognize Revenue** and **MRR item**. Note its number (for example 699767), not its long ID.
 5. **Expense accounts.** Decide which expense account each Recharge Category's unbilled costs move to when a deal cost isn't billed back (for example Legal → 6100 Legal expense). You'll set these in Rekindle on Settings → Reclass accounts, where **Fill by name** sets every unset category to the expense account tagged with it or named the same (review them after).
-6. **AP process.** Make sure AP codes reimbursable lines to 13190 with a Deals tag, a Recharge Category, and Billback Status = Pending.
+6. **Payment instructions.** For each entity that invoices (Settings → Entities → the entity → **Invoice**), enter the payment instructions in **Invoice Message**, one item per line. Rekindle prints it, line breaks and all, in a **Payment Information** box on the PDF between the invoice summary and the supporting detail, and puts it on the Campfire invoice's message. Leave it blank and the box is left off.
+7. **AP process.** Make sure AP codes reimbursable lines to 13190 with a Deals tag, a Recharge Category, and Billback Status = Pending.
 
 Update `config/rekindle.json` in the repo with the customer's tag group IDs, Billback Status tag IDs, account number and invoice branding. To find the IDs, ask Claude to read them through the Campfire connector.
 
@@ -185,6 +187,7 @@ Run one real bill end to end with writing switched on before handing over; it ca
 - [ ] Billback Queue shows the lines, with no exceptions
 - [ ] Set `REKINDLE_WRITE=true` in Render; **Stamp** fills Billing Type and Billback Customer on the bill; a line set by hand is untouched
 - [ ] Approvals: each deal's approver approves; Invoices shows the customers as **Approved · ready** (a customer with some deals not yet approved shows **Approved lines ready** and the amount waiting, linked to those deals)
+- [ ] Download a draft PDF; the **Payment Information** box shows the entity's Invoice Message
 - [ ] Create one invoice; it appears in Campfire with the PDF attached and one line per source line
 - [ ] Invoice lines carry department, Deals, Recharge Category, Class, Billback Customer and Billback Status = Billed
 - [ ] Source bill lines show Billed (a split line shows Allocated Pending Invoice until every owner is invoiced)
@@ -259,6 +262,7 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | A panel says "refused to connect" | Campfire's address isn't allowed to frame Rekindle | Add it to `REKINDLE_FRAME_ANCESTORS` |
 | Invoice history: **Check Campfire** | Rekindle couldn't tell whether the invoice was created | Search Campfire for the `RK-…` reference; press **It was created** (with its ID) or **It wasn't created** |
 | Invoice history: **Created · PDF not attached** | A later step failed | **Retry**; it never creates a second invoice |
+| No **Payment Information** box on the PDF | The entity's Invoice Message is blank, or Campfire refused Rekindle's read of the entity (Render's Logs show `entity_message_failed`) | Fill in Invoice Message on the entity; for a refusal, check the app's permissions (Step 3b) and Settings → fallbacks. The invoice is created either way |
 | Invoice lines missing tags | Invoice made before tags were sent, or Campfire dropped them | **Re-apply tags** on the run or the invoice panel |
 | New bills don't stamp on their own | Webhook missing, or writing off | Step 3f; `REKINDLE_WRITE=true`; or Stamp from the queue |
 | New deal: "Campfire refused part of this" | The app can't create tags or customers yet | Keep `CAMPFIRE_API_KEY` (Rekindle uses it for refused calls); try again: anything already created is reused |
