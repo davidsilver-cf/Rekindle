@@ -249,7 +249,14 @@ test("Campfire's context (user and workspace IDs, no email) signs people in on a
   const r = await fetch(`${base}/settings?cf_ctx=${ctx()}`, { headers: { 'sec-fetch-dest': 'iframe' } });
   const page = await r.text();
   assert.match(page, /Signed in from Campfire as user <b>4242<\/b> in workspace <b>57560<\/b>/);
-  assert.match(page, /add <code>campfire:4242<\/code> to <code>REKINDLE_ADMINS<\/code>/);
+  assert.match(page, /add <code>4242=your@email<\/code> to <code>REKINDLE_CAMPFIRE_USERS<\/code>/);
+  // Linked to an email: that person's admin rights and approvals apply.
+  process.env.REKINDLE_CAMPFIRE_USERS = '4242=david@campfire.ai';
+  const linked = await (await fetch(`${base}/settings?cf_ctx=${ctx()}`)).text();
+  assert.match(linked, /Linked to <b>david@campfire\.ai<\/b>\. You are an admin\./);
+  assert.doesNotMatch(linked, /isn't linked to a Rekindle email/);
+  delete process.env.REKINDLE_CAMPFIRE_USERS;
+  assert.match(await (await fetch(`${base}/?cf_ctx=${ctx()}`)).text(), /isn't linked to a Rekindle email yet/);
   // Made an admin by Campfire user ID.
   process.env.REKINDLE_ADMINS = 'david@campfire.ai,campfire:4242';
   assert.match(await (await fetch(`${base}/settings?cf_ctx=${ctx()}`)).text(), /You are an admin/);

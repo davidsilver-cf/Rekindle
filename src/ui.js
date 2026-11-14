@@ -135,9 +135,12 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
       return `<a class="item${active === key ? ' on' : ''}" href="${href}"${active === key ? ' aria-current="page"' : ''}><span>${label}</span>${badge}</a>`;
     })
     .join('');
-  const source = ctx.demo
+  // Signed in from Campfire but not linked to a Rekindle email: say why buttons are missing.
+  const unlinked = ctx.user?.campfireUserId != null && String(ctx.user.email || '').startsWith('campfire-user-') && !ctx.admin
+    ? `<div class="banner demo">You're signed in from Campfire as user <b>${esc(ctx.user.campfireUserId)}</b>, which isn't linked to a Rekindle email yet, so stamping, approving and invoicing are hidden. Ask an admin to add <code>${esc(ctx.user.campfireUserId)}=your@email</code> to <code>REKINDLE_CAMPFIRE_USERS</code> on Render.</div>` : '';
+  const source = unlinked + (ctx.demo
     ? `<div class="banner demo"><b>Demo data.</b> Showing test bill ABC_261106 from the repo. <a href="/settings">Connect Campfire</a> to read live bills.</div>`
-    : '';
+    : '');
   if (ctx.embed) {
     // Inside Campfire: Campfire has the main menu, so a slim tab bar instead of the sidebar.
     const tabs = items.map(([href, key, label, count, alert, title]) => `<a href="${href}"${active === key ? ' class="on" aria-current="page"' : ''}>${label}${count == null ? '' : `<span class="pill" title="${esc(title)}" style="${alert ? 'background:var(--bad);color:var(--on-accent)' : 'background:var(--hover);color:var(--nav-ink)'}">${count}</span>`}</a>`).join('');
@@ -653,7 +656,7 @@ ${ep?.error ? row('Endpoints', `<span class="no">${esc(ep.error)}</span>`) : ep 
   return layout({
     active: 'settings', title: 'Settings', ctx,
     body: `${flashHtml}<div class="head"><div><h1 class="title">Settings</h1><p class="sub">How Rekindle connects to Campfire.</p></div></div>
-${ctx.user?.campfireUserId != null ? `<div class="banner ${ctx.admin ? 'good' : 'demo'}">Signed in from Campfire as user <b>${esc(ctx.user.campfireUserId)}</b>${ctx.user.workspace != null ? ` in workspace <b>${esc(ctx.user.workspace)}</b>` : ''}. ${ctx.admin ? 'You are an admin.' : `To make this user an admin, add <code>campfire:${esc(ctx.user.campfireUserId)}</code> to <code>REKINDLE_ADMINS</code> on Render.`}${ctx.user.workspace != null ? ` To accept only this workspace, set <code>REKINDLE_CAMPFIRE_WORKSPACES</code> to <code>${esc(ctx.user.workspace)}</code>.` : ''}</div>` : ''}
+${ctx.user?.campfireUserId != null ? `<div class="banner ${ctx.admin ? 'good' : 'demo'}">Signed in from Campfire as user <b>${esc(ctx.user.campfireUserId)}</b>${ctx.user.workspace != null ? ` in workspace <b>${esc(ctx.user.workspace)}</b>` : ''}. ${String(ctx.user.email || '').startsWith('campfire-user-') ? `Link it to your Rekindle email so your admin rights and deal approvals apply: add <code>${esc(ctx.user.campfireUserId)}=your@email</code> to <code>REKINDLE_CAMPFIRE_USERS</code> on Render.` : `Linked to <b>${esc(ctx.user.email)}</b>.`} ${ctx.admin ? 'You are an admin.' : ''}${ctx.user.workspace != null ? ` To accept only this workspace, set <code>REKINDLE_CAMPFIRE_WORKSPACES</code> to <code>${esc(ctx.user.workspace)}</code>.` : ''}</div>` : ''}
 ${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${esc(ctx.loadError)}</div>` : ''}
 <div class="card"><div class="pad"><h2 style="margin:0">Campfire connection</h2>${status}</div>${details}${actions}</div>
 ${st.fallbacks?.length ? `<div class="card"><div class="pad"><h2 style="margin:0">Still using the API key</h2><p class="sub" style="margin:0">Campfire refused the app these calls, so Rekindle made them with <code>CAMPFIRE_API_KEY</code>. Give the Rekindle app the matching permission in Campfire (Settings → Apps), reconnect, and keep the API key until this list stays empty.</p></div><div class="scroll"><table><thead><tr><th>Call</th><th class="num">Times</th><th>Last</th></tr></thead><tbody>${st.fallbacks.map((f) => `<tr><td><code>${esc(f.path)}</code></td><td class="num">${f.count}</td><td>${esc(atET(f.last))}</td></tr>`).join('')}</tbody></table></div></div>` : ''}

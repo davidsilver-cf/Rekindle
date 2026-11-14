@@ -62,6 +62,18 @@ export function isAdmin(user) {
   return admins.includes(String(user.email).toLowerCase());
 }
 
+// Campfire user IDs linked to Rekindle emails: REKINDLE_CAMPFIRE_USERS =
+// "1234=david@firm.com, 5678=jane@firm.com". A linked person signed in from
+// inside Campfire is that email: same admin rights and deal approvals.
+export function linkedEmail(campfireUserId) {
+  if (campfireUserId == null) return null;
+  for (const pair of (process.env.REKINDLE_CAMPFIRE_USERS || '').split(',')) {
+    const [id, email] = pair.split('=').map((x) => (x || '').trim());
+    if (id && email && id === String(campfireUserId)) return email.toLowerCase();
+  }
+  return null;
+}
+
 // Someone Campfire vouches for with a signed context (no email in it): allowed
 // when their workspace is one Rekindle serves. REKINDLE_CAMPFIRE_WORKSPACES
 // (comma-separated customer IDs) limits which; unset, any workspace that has

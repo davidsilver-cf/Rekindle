@@ -22,7 +22,7 @@ import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
 import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage } from './ui.js';
-import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace } from './session.js';
+import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
 import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
@@ -93,6 +93,8 @@ function crossSitePost(req) {
 function contextUser(who) {
   if (who.email) return allowedToSignIn(who.email) ? { email: who.email, name: who.name, via: 'campfire', campfireUserId: who.userId } : null;
   if (who.userId == null || !allowedWorkspace(who.workspace)) return null;
+  const linked = linkedEmail(who.userId);
+  if (linked) return { email: linked, name: linked, via: 'campfire', campfireUserId: who.userId, workspace: who.workspace };
   return { email: `campfire-user-${who.userId}`, name: `Campfire user ${who.userId}`, via: 'campfire', campfireUserId: who.userId, workspace: who.workspace };
 }
 
