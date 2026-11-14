@@ -262,6 +262,8 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | New deal: "Campfire refused part of this" | The app can't create tags or customers yet | Keep `CAMPFIRE_API_KEY` (Rekindle uses it for refused calls); try again: anything already created is reused |
 | Reclass: "No expense account for <category>" | That Recharge Category has no account | Settings → Reclass accounts |
 | Reclass: Campfire 403 on `/coa/api/journal_entry` | The app lacks Journal Entries: Write | Step 3b, then Reconnect (the API key covers it meanwhile) |
+| Invoice or journal entry links open the wrong site or a "not found" page | The customer's Campfire isn't at app.meetcampfire.com | Set `CAMPFIRE_APP_URL` on Render to the address in their browser bar when they're in Campfire (e.g. `https://app.meetcampfire.com`) |
+| Inside Campfire, clicking an invoice or journal entry number does nothing | Campfire's frame blocks links that change the Campfire page | Open the same screen on Rekindle's own site (links open in a new tab there), and report it so the links can be switched to open a new tab |
 | First page takes a minute | Free Render plan was asleep | Normal on free; use a paid instance |
 
 ## Reference
@@ -287,6 +289,7 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional | Google sign-in |
 | `REKINDLE_CAMPFIRE_SIGNIN` | Optional | `true` shows **Sign in with Campfire**; leave off until Campfire lets apps request openid, email, profile |
 | `REKINDLE_FRAME_ANCESTORS` | Optional | Sites allowed to show Rekindle in a frame (default: Campfire) |
+| `CAMPFIRE_APP_URL` | Optional | Campfire's web address for links to invoices and journal entries; default `https://app.meetcampfire.com` |
 | `REKINDLE_DEMO` | Optional | `true` shows the test bill instead of live data |
 
 **Addresses on the Rekindle service**
