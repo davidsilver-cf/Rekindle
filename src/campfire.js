@@ -287,3 +287,19 @@ export async function findCustomerByName(name) {
   const n = name.trim().toLowerCase();
   return rows.find((v) => (v.vendor_type || 'customer') === 'customer' && !v.is_deleted && [v.name, v.company_name, v.display_name].some((x) => String(x || '').trim().toLowerCase() === n)) || null;
 }
+
+// All active customers (id, name), paged; cached for five minutes.
+let customersCache = null;
+export async function listCustomers({ fresh = false } = {}) {
+  if (!fresh && customersCache && customersCache.at > Date.now() - 300_000) return customersCache.rows;
+  const limit = 200;
+  const all = [];
+  for (let offset = 0; offset < 20_000; offset += limit) {
+    const page = await request('/coa/api/vendor', { vendor_type: 'customer', limit, offset });
+    const rows = Array.isArray(page) ? page : page.results || [];
+    all.push(...rows.filter((v) => !v.is_deleted && (v.vendor_type || 'customer') === 'customer' && v.status !== 'INACTIVE').map((v) => ({ id: v.id, name: v.name || v.company_name || v.display_name || '' })));
+    if (rows.length < limit) break;
+  }
+  customersCache = { at: Date.now(), rows: all };
+  return all;
+}

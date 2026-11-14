@@ -270,3 +270,11 @@ test('Invoices: Billing Group filter limits customers and amounts to that group\
   page = await (await get('/invoices?group=none')).text();
   assert.deepEqual(names(page), all.filter((n) => !fund.includes(n) || n === 'Fund II Employees Only'));
 });
+
+test('a Billback Customer tag with no customer attached links to the Campfire customer with the same name', async () => {
+  tags[46612].push(tag(1077715, 'Caribbean Oil', 46612, null));
+  customers.push({ id: 23409329, vendor_type: 'customer', name: 'Caribbean  oil', status: 'ACTIVE' });
+  const { loadConfig } = await import('../src/config.js');
+  const cfg = await loadConfig();
+  assert.equal(cfg.billbackCustomers.find((c) => c.name === 'Caribbean Oil').customerId, 23409329);
+});

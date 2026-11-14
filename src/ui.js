@@ -561,7 +561,7 @@ export function invoicesPage(ctx, selected, flash = null) {
       const deals = [...new Set(c.sources.map((s) => linesById.get(s.lineId)?.dealsTag))];
       const linked = Boolean(c.customer.customerId);
       let status;
-      if (!linked) status = `${pill('Not linked to a Campfire customer', 'background:var(--bad-tint);color:var(--bad)')}`;
+      if (!linked) status = `${pill('Not linked to a Campfire customer', 'background:var(--bad-tint);color:var(--bad)')}<div class="small muted" style="white-space:normal">No Campfire customer is named exactly "${esc(c.customer.name)}". Rename one to match, or attach a customer to the Billback Customer tag in Campfire.</div>`;
       else if (!r.ready) status = `${pill('Not all deals approved', 'background:var(--warn-tint);color:var(--warn)')}<div class="small muted" style="white-space:normal">Waiting: ${waitingLinks(ctx, r.waitingOn)}</div>`;
       else status = pill('Approved · ready', 'background:var(--good-tint);color:var(--good)');
       const ok = linked;

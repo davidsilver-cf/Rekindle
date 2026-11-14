@@ -28,6 +28,19 @@ export async function loadConfig() {
     ]);
     tags = { deals, billbackCustomers, billingGroups };
   }
-  const [setups, owners, links, groups] = await Promise.all([store.getSetups(), store.getOwners(), store.getCustomerLinks(), store.getBillingGroups()]);
+  const [setups, owners, savedLinks, groups] = await Promise.all([store.getSetups(), store.getOwners(), store.getCustomerLinks(), store.getBillingGroups()]);
+  // Billback Customer tags with no customer attached: match a Campfire
+  // customer with exactly the same name (case and spacing ignored).
+  const links = new Map(savedLinks);
+  const unlinked = (tags?.billbackCustomers || []).filter((t) => !t.customer && !links.has(Number(t.id)));
+  if (unlinked.length) {
+    const { listCustomers } = await import('./campfire.js');
+    const norm = (x) => String(x || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const customers = await listCustomers().catch(() => []);
+    for (const t of unlinked) {
+      const same = customers.filter((c) => norm(c.name) === norm(t.name));
+      if (same.length === 1) links.set(Number(t.id), Number(same[0].id));
+    }
+  }
   return effectiveConfig(config, { tags, setups, owners, links, groups });
 }
