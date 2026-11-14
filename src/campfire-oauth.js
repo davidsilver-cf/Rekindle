@@ -205,6 +205,21 @@ async function jwks() {
   return keys;
 }
 
+// Keys a cf_ctx may be signed with. Campfire keeps only a hash of the client
+// secret, so it may sign with that hash rather than the secret itself.
+function contextSecrets() {
+  const out = [];
+  const ctx = process.env.CAMPFIRE_CONTEXT_SECRET;
+  const cs = process.env.CAMPFIRE_CLIENT_SECRET;
+  if (ctx) out.push(['CAMPFIRE_CONTEXT_SECRET', ctx]);
+  if (cs) {
+    out.push(['client secret', cs]);
+    out.push(['sha256(client secret) hex', createHash('sha256').update(cs).digest('hex')]);
+    out.push(['sha256(client secret) bytes', createHash('sha256').update(cs).digest()]);
+  }
+  return out;
+}
+
 export async function verifyContext(token, { now = Date.now() } = {}) {
   const parts = String(token || '').split('.');
   if (parts.length !== 3) throw new Error('cf_ctx is not a signed token');
@@ -214,10 +229,11 @@ export async function verifyContext(token, { now = Date.now() } = {}) {
   const signed = Buffer.from(`${h}.${p}`);
   const sig = Buffer.from(s, 'base64url');
   let ok = false;
+  let signedWith = null;
   if (header.alg === 'HS256') {
-    for (const secret of [process.env.CAMPFIRE_CONTEXT_SECRET, process.env.CAMPFIRE_CLIENT_SECRET].filter(Boolean)) {
+    for (const [name, secret] of contextSecrets()) {
       const want = createHmac('sha256', secret).update(signed).digest();
-      if (want.length === sig.length && timingSafeEqual(want, sig)) { ok = true; break; }
+      if (want.length === sig.length && timingSafeEqual(want, sig)) { ok = true; signedWith = name; break; }
     }
   } else if (['RS256', 'ES256'].includes(header.alg)) {
     const key = (await jwks()).find((k) => !header.kid || k.kid === header.kid);
@@ -237,7 +253,10 @@ export async function verifyContext(token, { now = Date.now() } = {}) {
   return {
     email: email ? String(email).toLowerCase() : null,
     name: claims.name || claims.user?.name || email,
-    workspace: claims.workspace || claims.workspace_id || claims.org || null,
+    // Campfire's context names the person and workspace by ID.
+    userId: claims.user_id ?? claims.sub ?? null,
+    workspace: claims.customer_id ?? claims.workspace ?? claims.workspace_id ?? claims.org ?? null,
+    signedWith,
     claims,
   };
 }

@@ -241,3 +241,24 @@ test('without identity from Campfire: an admin signed in to Rekindle can still c
     assert.match(await login.text(), /Campfire didn&#39;t say who you are|Campfire didn't say who you are/);
   } finally { noIdentity = false; }
 });
+
+test("Campfire's context (user and workspace IDs, no email) signs people in on any page", async () => {
+  const hex = createHash('sha256').update('shh').digest('hex');
+  const ctx = (extra = {}, secret = hex) => jwt({ iss: 'campfire', aud: 'cid', jti: 'j', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 300,
+    customer_id: 57560, user_id: 4242, slot_key: 'billback-queue', object_type: null, object_ids: [], surface: 'navigation', ...extra }, secret);
+  const r = await fetch(`${base}/settings?cf_ctx=${ctx()}`, { headers: { 'sec-fetch-dest': 'iframe' } });
+  const page = await r.text();
+  assert.match(page, /Signed in from Campfire as user <b>4242<\/b> in workspace <b>57560<\/b>/);
+  assert.match(page, /add <code>campfire:4242<\/code> to <code>REKINDLE_ADMINS<\/code>/);
+  // Made an admin by Campfire user ID.
+  process.env.REKINDLE_ADMINS = 'david@campfire.ai,campfire:4242';
+  assert.match(await (await fetch(`${base}/settings?cf_ctx=${ctx()}`)).text(), /You are an admin/);
+  // Limited to one workspace: another one isn't signed in.
+  process.env.REKINDLE_CAMPFIRE_WORKSPACES = '57560';
+  const other = await fetch(`${base}/settings?cf_ctx=${ctx({ customer_id: 999 })}`, { redirect: 'manual' });
+  assert.equal(other.headers.get('location'), '/login');
+  // Wrong key: not signed in.
+  assert.equal((await fetch(`${base}/settings?cf_ctx=${ctx({}, 'nope')}`, { redirect: 'manual' })).headers.get('location'), '/login');
+  delete process.env.REKINDLE_CAMPFIRE_WORKSPACES;
+  process.env.REKINDLE_ADMINS = 'david@campfire.ai';
+});

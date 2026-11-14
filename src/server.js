@@ -22,7 +22,7 @@ import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup } from './setup.js';
 import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage } from './ui.js';
-import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn } from './session.js';
+import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
 import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
@@ -84,6 +84,14 @@ function crossSitePost(req) {
   if (!origin || origin === 'null') return Boolean(origin);
   const proto = req.headers['x-forwarded-proto'] || 'http';
   return origin !== `${proto}://${req.headers.host}`;
+}
+
+// The Rekindle user for a verified Campfire context: by email when it has
+// one, else by Campfire user ID within an allowed workspace.
+function contextUser(who) {
+  if (who.email) return allowedToSignIn(who.email) ? { email: who.email, name: who.name, via: 'campfire', campfireUserId: who.userId } : null;
+  if (who.userId == null || !allowedWorkspace(who.workspace)) return null;
+  return { email: `campfire-user-${who.userId}`, name: `Campfire user ${who.userId}`, via: 'campfire', campfireUserId: who.userId, workspace: who.workspace };
 }
 
 // Diagnostics for a cf_ctx that didn't verify: its header and claim names, never values.
@@ -244,11 +252,13 @@ async function handle(req, res) {
     const t = url.searchParams.get('cf_ctx');
     try {
       const who = await verifyContext(t);
-      if (who.email && allowedToSignIn(who.email)) {
-        user = { email: who.email, name: who.name, via: 'campfire' };
+      const u = contextUser(who);
+      if (u) {
+        user = u;
         res.setHeader('Set-Cookie', sessionCookie(makeSession(user), req));
+        console.log(JSON.stringify({ event: 'cf_ctx_signed_in', campfireUser: who.userId, workspace: who.workspace, signedWith: who.signedWith, admin: isAdmin(user) }));
       } else {
-        console.log(JSON.stringify({ event: 'cf_ctx_not_allowed', email: who.email || null }));
+        console.log(JSON.stringify({ event: 'cf_ctx_not_allowed', email: who.email || null, campfireUser: who.userId, workspace: who.workspace }));
       }
     } catch (err) {
       console.log(JSON.stringify({ event: 'cf_ctx_rejected', error: err.message, token: describeToken(t) }));
@@ -375,12 +385,13 @@ async function handle(req, res) {
     if (ctxToken) {
       try {
         const who = await verifyContext(ctxToken);
-        if (who.email && allowedToSignIn(who.email)) {
+        const u = contextUser(who);
+        if (u) {
           const store = await getStore();
-          await store.audit(who.email, 'sign_in', { via: 'campfire_manage' });
-          return redirect(res, '/', { 'Set-Cookie': sessionCookie(makeSession({ email: who.email, name: who.name, via: 'campfire' }), req) });
+          await store.audit(u.email, 'sign_in', { via: 'campfire_manage', workspace: who.workspace });
+          return redirect(res, '/', { 'Set-Cookie': sessionCookie(makeSession(u), req) });
         }
-        console.log(JSON.stringify({ event: 'manage_denied', email: who.email }));
+        console.log(JSON.stringify({ event: 'manage_denied', email: who.email, campfireUser: who.userId, workspace: who.workspace }));
       } catch (err) {
         console.log(JSON.stringify({ event: 'manage_ctx_rejected', error: err.message, token: describeToken(ctxToken) }));
       }

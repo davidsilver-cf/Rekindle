@@ -57,7 +57,18 @@ const emails = (v) => (v || '').split(',').map((e) => e.trim().toLowerCase()).fi
 export function isAdmin(user) {
   if (!user) return false;
   if (user.via === 'token') return true;
-  return emails(process.env.REKINDLE_ADMINS).includes(String(user.email).toLowerCase());
+  const admins = emails(process.env.REKINDLE_ADMINS);
+  if (user.campfireUserId != null && admins.includes(`campfire:${user.campfireUserId}`)) return true;
+  return admins.includes(String(user.email).toLowerCase());
+}
+
+// Someone Campfire vouches for with a signed context (no email in it): allowed
+// when their workspace is one Rekindle serves. REKINDLE_CAMPFIRE_WORKSPACES
+// (comma-separated customer IDs) limits which; unset, any workspace that has
+// the Rekindle app installed is accepted.
+export function allowedWorkspace(id) {
+  const list = emails(process.env.REKINDLE_CAMPFIRE_WORKSPACES);
+  return id != null && (!list.length || list.includes(String(id)));
 }
 
 // Who may sign in with Google: the allowed domain and/or listed people.
