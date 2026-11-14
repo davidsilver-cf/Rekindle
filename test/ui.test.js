@@ -69,3 +69,14 @@ test('deal setup form: Add owner control, one spare row, clear buttons, script l
   // A deal with no owners still starts with 3 blank rows.
   assert.equal((dealsPage(admin, 'Fund I').match(/name="owner_\d+_customer"/g) || []).length, 3);
 });
+
+test('menu shows a red count of deals needing setup, and none when all are set up', async () => {
+  const { effectiveConfig } = await import('../src/setup.js');
+  const withNew = effectiveConfig(config, { tags: {
+    deals: [...config.deals.map((d) => ({ id: d.dealsTagId, name: d.dealsTag })), { id: 1, name: 'Project Atlas' }, { id: 2, name: 'Project Beacon' }],
+    billbackCustomers: [],
+  } });
+  const page = queuePage({ ...ctx(), config: withNew });
+  assert.match(page, /Deals &amp; allocations<\/span><span class="pill" title="2 deals need setup" style="background:#991B1B;color:#fff">2/);
+  assert.doesNotMatch(queuePage(ctx()), /need(s)? setup"/);
+});

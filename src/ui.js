@@ -91,15 +91,20 @@ table.owners select,table.owners input{min-height:36px;padding:0 8px;border:1px 
 const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C2410C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7.5z"></path><path d="M6 21h12"></path></svg>`;
 
 export function layout({ active, title, body, ctx, scripts = [] }) {
+  const needSetup = (ctx.config?.deals || []).filter((d) => !d.billingType).length;
+  // [href, key, label, count, alert, title]; an alert count is red so it gets noticed.
   const items = [
-    ['/', 'queue', 'Billback queue', ctx.plan.lines.length],
-    ['/deals', 'deals', 'Deals &amp; allocations', null],
-    ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null],
-    ['/invoices', 'invoices', 'Invoices', ctx.plan.customers.length || null],
+    ['/', 'queue', 'Billback queue', ctx.plan.lines.length, false, 'Pending lines'],
+    ['/deals', 'deals', 'Deals &amp; allocations', needSetup || null, true, `${needSetup} deal${needSetup === 1 ? '' : 's'} need${needSetup === 1 ? 's' : ''} setup`],
+    ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null, false, 'Deals waiting for approval'],
+    ['/invoices', 'invoices', 'Invoices', ctx.plan.customers.length || null, false, 'Invoices in this run'],
   ];
   const nav = items
-    .map(([href, key, label, count]) =>
-      `<a class="item${active === key ? ' on' : ''}" href="${href}"${active === key ? ' aria-current="page"' : ''}><span>${label}</span>${count != null ? `<span class="pill" style="background:#fff;color:#3F3B36">${count}</span>` : ''}</a>`)
+    .map(([href, key, label, count, alert, title]) => {
+      const badge = count == null ? ''
+        : `<span class="pill" title="${esc(title)}" style="${alert ? 'background:#991B1B;color:#fff' : 'background:#fff;color:#3F3B36'}">${count}<span class="sr-only"> ${esc(title)}</span></span>`;
+      return `<a class="item${active === key ? ' on' : ''}" href="${href}"${active === key ? ' aria-current="page"' : ''}><span>${label}</span>${badge}</a>`;
+    })
     .join('');
   const source = ctx.demo
     ? `<div class="banner demo"><b>Demo data.</b> Showing test bill ABC_261106 from the repo. Add <code>CAMPFIRE_API_KEY</code> on Render to read live bills.</div>`
