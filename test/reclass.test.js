@@ -18,6 +18,7 @@ const tag = (id, name, group, customer = null) => ({ id, name, group, customer, 
 const tags = {
   46588: [tag(1027801, 'Deal XYZ', 46588), tag(1027964, 'Fund I', 46588), tag(1027965, 'Fund II', 46588), tag(1028616, 'Fund II - Employees Only', 46588)],
   46612: [tag(1027957, 'Deal XYZ', 46612, 22874410), tag(1027953, 'Fund I', 46612, 22874359), tag(1027955, 'Fund II Main', 46612, 22874366), tag(1027954, 'Fund II Co-Invest', 46612, 22874367), tag(1027956, 'Fund II Employees Only', 46612, 22874368)],
+  47765: [tag(1078262, 'Deal', 47765), tag(1078263, 'Fund', 47765)],
   46589: [tag(LEGAL, 'Legal', 46589), tag(1027806, 'Expense - Meals', 46589), tag(1027807, 'Expense - Travel', 46589), tag(1027999, 'Zebra', 46589)],
 };
 const sent = { jes: [], patches: [], tags: [], customers: [] };
@@ -236,4 +237,20 @@ test('Change the split: current owners end the day before, new ones start on the
   const cfg = await loadConfig();
   assert.deepEqual(activeOwners(cfg, 1027965, '2026-06-15').map((a) => a.percent), [80, 15, 5]);
   assert.deepEqual(activeOwners(cfg, 1027965, '2026-07-15').map((a) => a.percent), [70, 25, 5]);
+});
+
+test('Billing Group: a dropdown on the deal, saved per deal, and only admins can change it', async () => {
+  let page = await (await get('/deals?deal=Fund%20I')).text();
+  assert.match(page, /<span class="small muted">Billing group<\/span>/);
+  assert.match(page, /<option value="1078263">Fund<\/option>/);
+  assert.equal((await post('/deals/billing-group', { deal: '1027964', group: '1078263' })).headers.get('location'), '/deals?deal=Fund%20I&saved=1');
+  page = await (await get('/deals?deal=Fund%20I')).text();
+  assert.match(page, /<option value="1078263" selected>Fund<\/option>/);
+  const { loadConfig } = await import('../src/config.js');
+  assert.deepEqual((await loadConfig()).deals.find((d) => d.dealsTagId === 1027964).billingGroup, { id: 1078263, name: 'Fund' });
+  assert.equal((await post('/deals/billing-group', { deal: '1027964', group: '999' })).status, 400);
+  assert.equal((await post('/deals/billing-group', { deal: '1027964', group: '' })).status, 303);
+  assert.equal((await loadConfig()).deals.find((d) => d.dealsTagId === 1027964).billingGroup, null);
+  const viewer = `rekindle_session=${makeSession({ email: 'pat@campfire.ai', name: 'Pat', via: 'google' })}`;
+  assert.equal((await fetch(`${base}/deals/billing-group`, { method: 'POST', headers: { cookie: viewer, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'deal=1027964&group=1078262' })).status, 403);
 });

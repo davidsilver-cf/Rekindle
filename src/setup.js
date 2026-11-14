@@ -30,7 +30,7 @@ export function billbackCustomers(base, tags, links = new Map()) {
 //   tags:    { deals, billbackCustomers } from Campfire, or null in demo mode
 //   setups:  Map dealsTagId → { billingType, customer } saved in Rekindle
 //   owners:  [{ dealsTagId, customer, percent, start, end }] saved in Rekindle
-export function effectiveConfig(base, { tags = null, setups = new Map(), owners = [], links = new Map() } = {}) {
+export function effectiveConfig(base, { tags = null, setups = new Map(), owners = [], links = new Map(), groups = new Map() } = {}) {
   const customers = billbackCustomers(base, tags, links);
   const dealTags = tags?.deals
     ? tags.deals.map((t) => ({ id: t.id, name: t.name }))
@@ -55,7 +55,10 @@ export function effectiveConfig(base, { tags = null, setups = new Map(), owners 
     ...base.allocations.filter((a) => !savedDeals.has(a.dealsTagId)).map((a) => ({ ...a, customer: fileCustomer(a.customer) })),
   ];
 
-  return { ...base, deals, allocations, billbackCustomers: customers };
+  // Billing Group: a tag per deal, from the Billing Group tag group.
+  for (const d of deals) d.billingGroup = groups.get(d.dealsTagId) || null;
+  const billingGroups = (tags?.billingGroups || []).map((t) => ({ id: t.id, name: t.name })).sort((a, b) => a.name.localeCompare(b.name));
+  return { ...base, deals, allocations, billbackCustomers: customers, billingGroups };
 }
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;

@@ -405,6 +405,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
 <div class="card pad" style="flex-direction:row;flex-wrap:wrap;gap:32px">
 <div><span class="small muted">Deal</span><div style="font-size:20px;font-weight:700">${esc(deal.dealsTag)}</div></div>
 <div><span class="small muted">Billing type</span><div>${deal.billingType ? typePill(deal.billingType) : pill('Needs setup', 'background:var(--bad-tint);color:var(--bad)')}</div></div>
+<div><span class="small muted">Billing group</span><div>${billingGroupControl(ctx, deal)}</div></div>
 <div><span class="small muted">Setup</span><div class="small">${esc(SETUP_SOURCE[deal.source] || '')}</div></div>
 <div><span class="small muted">Campfire Deals tag</span><div class="small">ID ${esc(deal.dealsTagId)}</div></div></div>
 ${summary}${ctx.admin && deal.billingType === 'Allocation' && owners.length ? changeSplitForm(ctx, deal, owners, flash) : ''}${ctx.admin ? setupForm(ctx, deal, owners, draft, flash) : `<div class="banner demo">Only Rekindle admins can change a deal's setup. You're signed in as <b>${esc(ctx.user?.email || '')}</b>, which isn't in <code>REKINDLE_ADMINS</code>.</div>`}${approverCard(ctx, deal)}</div></div>`,
@@ -956,4 +957,13 @@ function changeSplitForm(ctx, deal, owners, flash) {
 <div class="scroll"><table><thead><tr><th>Billback customer</th><th>Share %</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td><select name="new_${i}_customer" aria-label="New owner ${i + 1}" style="${field}">${opts(r.id)}</select></td><td><input name="new_${i}_percent" type="number" min="0" max="100" step="0.0001" inputmode="decimal" value="${esc(r.pct)}" aria-label="New owner ${i + 1} share" style="${field};width:110px"></td></tr>`).join('')}</tbody></table></div>
 ${flash && !flash.ok && flash.split ? `<div class="banner bad" role="alert">Not saved: ${esc(flash.text)}</div>` : ''}
 <div><button class="btn primary" type="submit">Save new split</button></div></form>`;
+}
+
+function billingGroupControl(ctx, deal) {
+  const groups = ctx.config.billingGroups || [];
+  const cur = deal.billingGroup;
+  if (!ctx.admin || !groups.length) return cur ? esc(cur.name) : '<span class="muted">—</span>';
+  return `<form method="post" action="/deals/billing-group" class="inline billing-group" style="gap:6px"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}">
+<select name="group" aria-label="Billing group" style="min-height:32px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;font-size:13px;background:var(--surface);color:var(--ink)"><option value="">None</option>${groups.map((g) => `<option value="${esc(g.id)}"${cur && Number(cur.id) === Number(g.id) ? ' selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
+<button class="btn sm" type="submit">Save</button></form>`;
 }

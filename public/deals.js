@@ -1,3 +1,13 @@
+// Billing group: save as soon as a different group is picked.
+(function () {
+  var f = document.querySelector('form.billing-group');
+  if (!f) return;
+  var sel = f.querySelector('select');
+  var btn = f.querySelector('button');
+  if (btn) btn.style.display = 'none';
+  sel.addEventListener('change', function () { f.submit(); });
+})();
+
 // Deals screen: add owner rows, clear a row, show only the fields that apply
 // to the chosen billing type, and a live total of active owners' shares.
 // The form still works without this script (save to get more blank rows).

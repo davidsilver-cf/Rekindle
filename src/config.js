@@ -21,12 +21,13 @@ export async function loadConfig() {
   let tags = null;
   if (!demoMode()) {
     const { listTags } = await import('./campfire.js');
-    const [deals, billbackCustomers] = await Promise.all([
+    const [deals, billbackCustomers, billingGroups] = await Promise.all([
       listTags(config.tagGroups.deals),
       listTags(config.tagGroups.billbackCustomer),
+      config.tagGroups.billingGroup ? listTags(config.tagGroups.billingGroup).catch(() => []) : [],
     ]);
-    tags = { deals, billbackCustomers };
+    tags = { deals, billbackCustomers, billingGroups };
   }
-  const [setups, owners, links] = await Promise.all([store.getSetups(), store.getOwners(), store.getCustomerLinks()]);
-  return effectiveConfig(config, { tags, setups, owners, links });
+  const [setups, owners, links, groups] = await Promise.all([store.getSetups(), store.getOwners(), store.getCustomerLinks(), store.getBillingGroups()]);
+  return effectiveConfig(config, { tags, setups, owners, links, groups });
 }

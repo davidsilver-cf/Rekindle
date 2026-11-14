@@ -1,11 +1,12 @@
 {
-  "_comment": "Rekindle setup for the David Silver - Rekindle test workspace. Mirrors the Tag Setup and Allocations tabs of the 'Rekindle – Bill ABC_261106 Test' sheet. IDs are Campfire IDs.",
+  "_comment": "Rekindle setup for the David Silver - Rekindle test workspace. Mirrors the Tag Setup and Allocations tabs of the 'Rekindle \u2013 Bill ABC_261106 Test' sheet. IDs are Campfire IDs.",
   "unbilledAccountNumber": "13190",
   "tagGroups": {
     "deals": 46588,
     "billbackStatus": 46610,
     "billbackCustomer": 46612,
-    "rechargeCategory": 46589
+    "rechargeCategory": 46589,
+    "billingGroup": 47765
   },
   "billbackStatusTags": {
     "Pending": 1027943,

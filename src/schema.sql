@@ -174,3 +174,6 @@ CREATE TABLE IF NOT EXISTS billback_customer_links (
   created_by   text NOT NULL,
   created_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Each deal's Billing Group tag (Campfire tag group "Billing Group").
+ALTER TABLE deal_settings ADD COLUMN IF NOT EXISTS billing_group jsonb;

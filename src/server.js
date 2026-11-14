@@ -952,6 +952,20 @@ async function handle(req, res) {
     return redirect(res, `/deals?deal=${encodeURIComponent(deal.dealsTag)}&saved=1`);
   }
 
+  if (req.method === 'POST' && url.pathname === '/deals/billing-group') {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can change deal setup.');
+    const form = new URLSearchParams(await readBody(req));
+    const config = await loadConfig();
+    const deal = config.deals.find((d) => d.dealsTagId === Number(form.get('deal')));
+    if (!deal) return send(res, 400, 'Unknown deal.');
+    const id = Number(form.get('group'));
+    const group = id ? config.billingGroups.find((g) => g.id === id) : null;
+    if (id && !group) return send(res, 400, 'Unknown billing group.');
+    await (await getStore()).setBillingGroup(deal.dealsTagId, deal.dealsTag, group, user.email);
+    return redirect(res, `/deals?deal=${encodeURIComponent(deal.dealsTag)}&saved=1`);
+  }
+
   if (req.method === 'POST' && url.pathname === '/deals/approver') {
     if (!user) return redirect(res, '/login');
     if (!isAdmin(user)) return send(res, 403, 'Only admins can change approvers.');

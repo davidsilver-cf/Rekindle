@@ -15,6 +15,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
   audit: 'INSERT INTO audit_log (actor_email, action, detail) VALUES ($1, $2, $3)',
   recentAudit: 'SELECT at, actor_email, action, detail FROM audit_log ORDER BY at DESC, id DESC LIMIT $1',
   setups: 'SELECT deals_tag_id, billing_type, customer FROM deal_settings WHERE billing_type IS NOT NULL',
+  billingGroups: 'SELECT deals_tag_id, billing_group FROM deal_settings WHERE billing_group IS NOT NULL',
+  setBillingGroup: `INSERT INTO deal_settings (deals_tag_id, deals_tag_name, billing_group, updated_by, updated_at) VALUES ($1, $2, $3, $4, now())
+ON CONFLICT (deals_tag_id) DO UPDATE SET deals_tag_name = EXCLUDED.deals_tag_name, billing_group = EXCLUDED.billing_group, updated_by = EXCLUDED.updated_by, updated_at = now()`,
   setSetup: `INSERT INTO deal_settings (deals_tag_id, deals_tag_name, billing_type, customer, updated_by, updated_at)
 VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT (deals_tag_id) DO UPDATE SET deals_tag_name = EXCLUDED.deals_tag_name, billing_type = EXCLUDED.billing_type,
@@ -92,6 +95,7 @@ export function memoryStore() {
   const userLinks = new Map();
   const admins = new Map();
   const customerLinks = new Map();
+  const billingGroups = new Map();
   const reclassAccounts = new Map();
   const reclassRuns = [];
   const reclassItems = [];
@@ -151,6 +155,11 @@ export function memoryStore() {
     async audit(actor, action, detail = {}) { log.push({ at: new Date(), actor_email: actor, action, detail }); },
     async recentAudit(limit = 50) { return log.slice(-limit).reverse(); },
     async getSetups() { return new Map([...setups].map(([k, v]) => [k, { ...v }])); },
+    async getBillingGroups() { return new Map(billingGroups); },
+    async setBillingGroup(dealsTagId, name, group, actor) {
+      if (group) billingGroups.set(Number(dealsTagId), group); else billingGroups.delete(Number(dealsTagId));
+      log.push({ at: new Date(), actor_email: actor, action: 'set_billing_group', detail: { dealsTagId, name, group } });
+    },
     async getOwners() { return owners.map((o) => ({ ...o })); },
     async saveDealSetup(dealsTagId, name, setup, ownerRows, actor) {
       setups.set(dealsTagId, { billingType: setup.billingType, customer: setup.customer });
@@ -278,6 +287,14 @@ export async function postgresStore(connectionString) {
     async recentAudit(limit = 50) {
       const { rows } = await q(SQL.recentAudit, [limit]);
       return rows;
+    },
+    async getBillingGroups() {
+      const { rows } = await q(SQL.billingGroups);
+      return new Map(rows.map((r) => [Number(r.deals_tag_id), r.billing_group]));
+    },
+    async setBillingGroup(dealsTagId, name, group, actor) {
+      await q(SQL.setBillingGroup, [dealsTagId, name, group ? JSON.stringify(group) : null, actor]);
+      await q(SQL.audit, [actor, 'set_billing_group', JSON.stringify({ dealsTagId, name, group })]);
     },
     async getSetups() {
       const { rows } = await q(SQL.setups);
