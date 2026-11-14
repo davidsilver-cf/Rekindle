@@ -454,6 +454,9 @@ function historyTable(ctx) {
     if (ctx.admin && (r.status === 'created' || r.status === 'pdf_attached')) {
       actions.push(`<form method="post" action="/invoices/retry"><input type="hidden" name="run" value="${esc(r.id)}"><button class="btn sm" type="submit">Retry</button></form>`);
     }
+    if (ctx.admin && r.campfire_invoice_id && ['created', 'pdf_attached', 'complete'].includes(r.status)) {
+      actions.push(`<form method="post" action="/invoices/retag"><input type="hidden" name="run" value="${esc(r.id)}"><button class="btn sm" type="submit" title="Copy tags and department from the source bill lines onto this invoice's lines">Re-apply tags</button></form>`);
+    }
     if (ctx.admin && r.status === 'unknown') {
       actions.push(`<form class="inline" method="post" action="/invoices/resolve"><input type="hidden" name="run" value="${esc(r.id)}">
 <label class="filter" style="min-width:120px"><span>Campfire invoice ID</span><input name="campfire_id" inputmode="numeric" pattern="[0-9]*" placeholder="if it was created"></label>

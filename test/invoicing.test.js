@@ -10,6 +10,10 @@ const BILLED = 1027947;
 const PARTLY = 1027946;
 const PENDING = 1027943;
 const bills = JSON.parse(readFileSync(new URL('./fixtures/ABC_261106.json', import.meta.url), 'utf8'));
+// Fund I's line has a department and a Class tag, which its invoice line should carry.
+const fundILine = bills[0].lines.find((l) => l.id === 9190922);
+fundILine.department = 137571;
+fundILine.tags.push({ id: 1099001, group: 47704, name: 'Private Equity', is_deleted: false });
 const tag = (id, name, group, customer = null) => ({ id, name, group, customer, is_active: true, is_deleted: false });
 const tags = {
   46588: [tag(1027801, 'Deal XYZ', 46588), tag(1027964, 'Fund I', 46588), tag(1027965, 'Fund II', 46588), tag(1028616, 'Fund II - Employees Only', 46588)],
@@ -17,8 +21,9 @@ const tags = {
 };
 const statusNames = { [PENDING]: 'Pending', [BILLED]: 'Billed', [PARTLY]: 'Allocated Pending Invoice' };
 
-const sent = { invoices: [], uploads: [], patches: [] };
-let failNext = null; // 'create400' | 'create500' | 'upload500'
+const sent = { invoices: [], uploads: [], patches: [], invoicePatches: [] };
+let failNext = null; // 'create400' | 'create500' | 'upload500' | 'dropTags'
+const stored = new Map(); // invoices as Campfire would return them
 let nextId = 9000;
 const fake = http.createServer((req, res) => {
   let body = [];
@@ -47,7 +52,25 @@ const fake = http.createServer((req, res) => {
       const inv = JSON.parse(body);
       const id = ++nextId;
       sent.invoices.push({ id, ...inv });
-      return json(201, { id, invoice_number: `INV-${id}`, ...inv });
+      // Campfire answers with line ids and tag_ids; 'dropTags' acts as if it ignored line tags and department.
+      const drop = failNext === 'dropTags';
+      if (drop) failNext = null;
+      const out = { id, invoice_number: `INV-${id}`, ...inv, lines: inv.lines.map((l, i) => {
+        const { tags: t, ...rest } = l;
+        return drop ? { ...rest, id: id * 10 + i, department: null, tag_ids: [] } : { ...rest, id: id * 10 + i, tag_ids: t.map((x) => x.id) };
+      }) };
+      stored.set(id, out);
+      return json(201, out);
+    }
+    const invMatch = url.pathname.match(/^\/coa\/api\/v1\/invoice\/(\d+)$/);
+    if (invMatch && req.method === 'GET') return json(200, stored.get(Number(invMatch[1])));
+    if (invMatch && req.method === 'PATCH') {
+      const inv = stored.get(Number(invMatch[1]));
+      const update = JSON.parse(body);
+      sent.invoicePatches.push({ id: inv.id, update });
+      // Like Campfire: the lines sent replace the invoice's lines.
+      inv.lines = update.lines.map(({ tags: t, ...l }) => ({ ...l, tag_ids: t.map((x) => x.id) }));
+      return json(200, inv);
     }
     if (url.pathname === '/ca/api/file/upload' && req.method === 'POST') {
       if (failNext === 'upload500') { failNext = null; return json(500, { error: 'storage down' }); }
@@ -122,6 +145,12 @@ test('confirm page shows what will be created, then invoices are created end to 
   assert.equal(fund1.entity, 57560);
   assert.match(fund1.ref_number, /^RK-/);
   assert.deepEqual(fund1.lines.map((l) => [l.product, l.amount, l.description, l.service_date]), [[777, 8000, 'Fund I — Legal: Legal Fee - Fund I (ABC Law Firm ABC_261106)', '2026-11-06']]);
+  // Each invoice line carries the source line's department and tags, plus the
+  // billback customer and Billback Status = Billed (not the line's Pending).
+  assert.equal(fund1.lines[0].department, 137571);
+  assert.deepEqual(fund1.lines[0].tags.map((t) => t.id).sort(), [1027811, 1027947, 1027953, 1027964, 1099001].sort());
+  assert.deepEqual(stored.get(fund1.id).lines[0].tag_ids.sort(), [1027811, 1027947, 1027953, 1027964, 1099001].sort());
+  assert.equal(sent.invoicePatches.length, 0); // Campfire kept them, so no follow-up update
   assert.equal(main.client, 22874366);
   assert.deepEqual(main.lines.map((l) => l.amount), [9600]);
 
@@ -218,4 +247,27 @@ test('without a database, invoices are not offered or created', async () => {
   } finally {
     process.env.REKINDLE_ALLOW_MEMORY_STORE = 'true';
   }
+});
+
+test('if Campfire drops line tags on create, Rekindle sets them on the invoice lines without changing amounts', async () => {
+  // Undo Deal XYZ's earlier invoice so it can be billed again here.
+  const { getStore } = await import('../src/store.js');
+  const store = await getStore();
+  for (const r of await store.listRuns()) if (r.customer_name === 'Deal XYZ') await store.releaseRun(r.id, 'test');
+  for (const l of bills[0].lines) if (l.id === 9190921) l.tags = l.tags.map((t) => (t.id === BILLED ? { ...t, id: PENDING, name: 'Pending' } : t));
+  await approveAll();
+  failNext = 'dropTags';
+  assert.equal((await createFor('Deal XYZ')).headers.get('location'), '/invoices?done=1&partial=0&held=0&failed=0');
+  const inv = stored.get(sent.invoices.at(-1).id);
+  assert.equal(sent.invoicePatches.at(-1).id, inv.id);
+  assert.deepEqual(inv.lines.map((l) => [l.amount, l.product, l.quantity, l.rate]), [[10000, 777, 1, 10000]]);
+  assert.deepEqual(inv.lines[0].tag_ids.sort(), [1027801, 1027811, 1027947, 1027957].sort());
+
+  // Re-apply tags on an existing invoice: strip them in "Campfire", then press the button.
+  inv.lines[0].tag_ids = [];
+  const page = await (await get('/invoices')).text();
+  const runId = [...page.matchAll(/action="\/invoices\/retag"><input type="hidden" name="run" value="(\d+)"/g)].map((m) => m[1])[0]; // newest first
+  assert.ok(runId, 'Re-apply tags button shown');
+  assert.equal((await post('/invoices/retag', { run: runId })).headers.get('location'), '/invoices?retagged=yes');
+  assert.deepEqual(stored.get(inv.id).lines[0].tag_ids.sort(), [1027801, 1027811, 1027947, 1027957].sort());
 });

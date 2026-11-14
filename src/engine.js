@@ -61,6 +61,9 @@ export function planLine(bill, line, config) {
     entityId: bill.entity ?? null,
     status: status.name,
     lineId: line.id,
+    departmentId: line.department ?? null,
+    // Every tag on the bill line, so invoice lines can carry the same ones.
+    sourceTags: (line.tags || []).filter((t) => !t.is_deleted).map((t) => ({ id: t.id, group: t.group })),
     description: line.description,
     amountCents: toCents(line.amount),
     rechargeCategory: tagInGroup(line, config.tagGroups.rechargeCategory)?.name ?? null,

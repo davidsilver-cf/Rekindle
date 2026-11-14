@@ -14,7 +14,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill, updateBill, createInvoice, uploadFile } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice } from './campfire.js';
 import { processBills } from './process.js';
 import { planBills } from './engine.js';
 import { formatPlan } from './report.js';
@@ -26,9 +26,9 @@ import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, i
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { getStore, StoreError, ShareTakenError } from './store.js';
 
-const campfireApi = { createInvoice, uploadFile, getBill, updateBill };
+const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice };
 import { dealGroups, withStatus, canDecide, customerReady } from './approvals.js';
-import { startInvoice, advanceRun, prepareInvoice } from './invoicing.js';
+import { startInvoice, advanceRun, prepareInvoice, retagRun } from './invoicing.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
@@ -182,6 +182,8 @@ const SCREENS = {
       ].filter(Boolean).join('\n') };
     } else if (s.has('nothing')) {
       flash = { ok: false, text: 'Select at least one customer that is ready to invoice.' };
+    } else if (s.has('retagged')) {
+      flash = { ok: s.get('retagged') === 'yes', text: s.get('retagged') === 'yes' ? 'Tags and departments applied to the invoice lines in Campfire.' : "Tags weren't applied; see the message in Invoice history." };
     } else if (s.has('retried')) {
       flash = { ok: s.get('retried') === 'complete', text: s.get('retried') === 'complete' ? 'Finished.' : 'Still not finished; see the message in Invoice history.' };
     }
@@ -275,7 +277,7 @@ async function handle(req, res) {
   }
 
   // ---- Invoicing
-  const invoiceRoute = ['/invoices/confirm', '/invoices/create', '/invoices/retry', '/invoices/resolve'].includes(url.pathname);
+  const invoiceRoute = ['/invoices/confirm', '/invoices/create', '/invoices/retry', '/invoices/resolve', '/invoices/retag'].includes(url.pathname);
   if (req.method === 'POST' && invoiceRoute) {
     if (!user) return redirect(res, '/login');
     if (!isAdmin(user)) return send(res, 403, 'Only admins can create invoices.');
@@ -320,6 +322,18 @@ async function handle(req, res) {
     const run = await store.getRun(Number(form.get('run')));
     if (!run) return send(res, 404, 'No such invoice run.');
     const config = await loadConfig();
+
+    if (url.pathname === '/invoices/retag') {
+      if (!run.campfire_invoice_id) return redirect(res, '/invoices');
+      try {
+        const note = await retagRun(run.id, { store, api: campfireApi, config, log: console.log });
+        await store.audit(user.email, 'invoice_retag', { ref: run.ref, ok: !note });
+        return redirect(res, `/invoices?retagged=${note ? 'no' : 'yes'}`);
+      } catch (err) {
+        await store.updateRun(run.id, { error: `Re-apply tags failed: ${err.message}` });
+        return redirect(res, '/invoices?retagged=no');
+      }
+    }
 
     if (url.pathname === '/invoices/retry') {
       if (!['created', 'pdf_attached'].includes(run.status)) return redirect(res, '/invoices');

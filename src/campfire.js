@@ -117,3 +117,26 @@ export async function uploadFile({ model, objectId, filename, data, type = 'appl
   }
   throw new Error('Campfire kept rate-limiting the file upload');
 }
+
+export function getInvoice(id) {
+  return request(`/coa/api/v1/invoice/${id}`);
+}
+
+// Update an invoice's lines (used to set their tags and department).
+// PATCH first; if Campfire doesn't allow it, PUT with the invoice's own
+// header values unchanged, because PUT replaces the whole invoice.
+const INVOICE_HEADER = ['entity', 'client', 'invoice_date', 'due_date', 'ref_number', 'invoice_number', 'message_on_invoice', 'currency', 'terms'];
+export async function updateInvoice(invoice, lines) {
+  const path = `/coa/api/v1/invoice/${invoice.id}`;
+  try {
+    return await request(path, {}, { method: 'PATCH', body: { lines } });
+  } catch (err) {
+    if (err.status !== 405) throw err;
+    const header = {};
+    for (const k of INVOICE_HEADER) {
+      const v = invoice[k];
+      if (v !== undefined && v !== null) header[k] = v && typeof v === 'object' ? v.id : v;
+    }
+    return request(path, {}, { method: 'PUT', body: { ...header, lines } });
+  }
+}

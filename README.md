@@ -126,7 +126,7 @@ Setup is saved in Postgres and wins over `config/rekindle.json`, which is now on
 **Invoices** lists each billback customer with what it's still owed. A customer is **Ready** when every deal feeding it is approved and its Billback Customer tag is linked to a Campfire customer. Tick the ones to bill, **Create selected**, check the confirmation page, then **Create in Campfire**. For each customer Rekindle:
 
 1. **Reserves** the bill-line shares in its database. A share already on an invoice is refused, so nothing is billed twice, even with two clicks at once.
-2. **Creates the invoice** in Campfire: one line per deal per recharge category, on the invoice product, with a reference (`RK-…`) in the invoice's reference number.
+2. **Creates the invoice** in Campfire: one line per source bill line (or per owner's share of a split line), on the invoice product, with a reference (`RK-…`) in the invoice's reference number. Each line carries the source line's **department** and its tags (Deals, Recharge Category, Class, any others), plus the **Billback Customer** it's billed to and **Billback Status = Billed**. If Campfire doesn't keep the tags on create, Rekindle sets them on the invoice's lines right after.
 3. **Builds the PDF** with Campfire's invoice number and **attaches** it to the invoice.
 4. **Marks the source bill lines** Billed. A split line stays **Allocated Pending Invoice** until every owner's share has been invoiced, then becomes Billed.
 
@@ -142,4 +142,4 @@ Only admins create invoices, and only with `REKINDLE_WRITE=true`.
 
 **Setup:** `REKINDLE_INVOICE_PRODUCT_ID` = the **number** of the Campfire product to put on invoice lines (not its long UUID). On that product set **Invoice Credit Account** = 13190 Unbilled Receivable, untick **Recognize Revenue?** and **MRR item**, so each invoice posts Dr Accounts Receivable / Cr 13190 and clears the unbilled balance. (Left blank, the Invoice Credit Account falls back to deferred revenue.) Due dates use `invoice.termsDays` in `config/rekindle.json` (0 = due on the invoice date).
 
-Campfire's API only accepts tags on the whole invoice, not on each line, so the invoice's GL lines aren't tagged by deal; the deal is in each line's description and on the PDF.
+**Re-apply tags** (Invoice history, admins) copies department and tags from the source bill lines onto an invoice Rekindle already created, e.g. one made before line tags were sent. If Campfire won't keep them, the run shows a "Tags:" note saying so.
