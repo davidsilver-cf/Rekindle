@@ -1,7 +1,7 @@
 // Rekindle web service (Render).
 // Screens (sign in with Google, or with REKINDLE_ADMIN_TOKEN as an admin):
-//   GET  /                 Billback queue
-//   GET  /deals            Deals & allocations (admins set each deal's approver)
+//   GET  /                 Billback Queue
+//   GET  /deals            Deals & Allocations (admins set each deal's approver)
 //   GET  /approvals        Approve or send back, per deal
 //   GET  /invoices         Invoice preview
 //   POST /run-now          Stamp pending lines (only when REKINDLE_WRITE=true)

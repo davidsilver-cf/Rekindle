@@ -77,7 +77,7 @@ test('menu shows a red count of deals needing setup, and none when all are set u
     billbackCustomers: [],
   } });
   const page = queuePage({ ...ctx(), config: withNew });
-  assert.match(page, /Deals &amp; allocations<\/span><span class="pill" title="2 deals need setup" style="background:var\(--bad\);color:var\(--on-accent\)">2/);
+  assert.match(page, /Deals &amp; Allocations<\/span><span class="pill" title="2 deals need setup" style="background:var\(--bad\);color:var\(--on-accent\)">2/);
   assert.doesNotMatch(queuePage(ctx()), /need(s)? setup"/);
 });
 
@@ -102,4 +102,11 @@ test('themes: Campfire colors inside Campfire, light/dark from the choice, else 
   assert.match(page, /href="\/theme\?set=dark&amp;back=/);
   assert.match(queuePage({ ...ctx(), embed: true, theme: 'dark', path: '/?x=1' }), /set=light&amp;back=%2F%3Fx%3D1/);
   assert.ok(layout);
+});
+
+test('inside Campfire the page title is hidden (Campfire shows it); the queue has its short description', () => {
+  const page = queuePage({ ...ctx(), embed: true });
+  assert.match(page, /<h1 class="title">Billback Queue<\/h1><p class="sub">Deal expenses waiting to be billed back\.<\/p>/);
+  assert.match(page, /\.embedded h1\.title\{display:none\}/);
+  assert.match(queuePage(ctx()), /<title>Rekindle · Billback Queue<\/title>/);
 });

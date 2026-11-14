@@ -1,4 +1,4 @@
-// Billback queue: select-all, live selected count, and the Stamp selected button.
+// Billback Queue: select-all, live selected count, and the Stamp selected button.
 // The page works without this script; it only makes selecting easier.
 (function () {
   var all = document.getElementById('select-all');

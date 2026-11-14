@@ -51,6 +51,7 @@ h1{margin:0;font-size:26px}h2{margin:0;font-size:16px}
 .head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.embedded h1.title{display:none}.embedded h1.title+.sub{margin-top:0}
 .embedded .shell{display:block;min-height:0}.embedded main{padding:16px 20px;gap:16px}
 .tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--line);align-items:center}
 .tabs a{padding:6px 12px;border-radius:8px;color:var(--nav-ink);text-decoration:none;font-size:13px;min-height:32px;display:inline-flex;align-items:center;gap:6px}
@@ -121,8 +122,8 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
   const needSetup = (ctx.config?.deals || []).filter((d) => !d.billingType).length;
   // [href, key, label, count, alert, title]; an alert count is red so it gets noticed.
   const items = [
-    ['/', 'queue', 'Billback queue', ctx.plan.lines.length, false, 'Pending lines'],
-    ['/deals', 'deals', 'Deals &amp; allocations', needSetup || null, true, `${needSetup} deal${needSetup === 1 ? '' : 's'} need${needSetup === 1 ? 's' : ''} setup`],
+    ['/', 'queue', 'Billback Queue', ctx.plan.lines.length, false, 'Pending lines'],
+    ['/deals', 'deals', 'Deals &amp; Allocations', needSetup || null, true, `${needSetup} deal${needSetup === 1 ? '' : 's'} need${needSetup === 1 ? 's' : ''} setup`],
     ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null, false, 'Deals waiting for approval'],
     ['/invoices', 'invoices', 'Invoices', ctx.plan.customers.length || null, false, 'Invoices in this run'],
     ['/settings', 'settings', 'Settings', null, false, ''],
@@ -255,8 +256,8 @@ ${select('bill', 'Bill', filters.bill, uniq(plan.lines.map((l) => l.billNumber))
 <div class="filter-actions"><button class="btn" type="submit">Apply</button>${active ? '<a class="btn" href="/">Clear</a>' : ''}</div></form>`;
 
   return layout({
-    active: 'queue', title: 'Billback queue', ctx, scripts: ['/static/queue.js'],
-    body: `${flashHtml}${review ? reviewBanner(ctx, review) : ''}<div class="head"><div><h1>Billback queue</h1><p class="sub">Pending lines on ${esc(ctx.config.unbilledAccountNumber)} Unbilled Receivable, stamped from each line's Deals tag.</p></div>
+    active: 'queue', title: 'Billback Queue', ctx, scripts: ['/static/queue.js'],
+    body: `${flashHtml}${review ? reviewBanner(ctx, review) : ''}<div class="head"><div><h1 class="title">Billback Queue</h1><p class="sub">Deal expenses waiting to be billed back.</p></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${stampButtons}<a class="btn primary" href="/approvals">Review for approval</a></div></div>
 <div class="grid4">
 <a class="card kpi link" href="/"><span>Pending lines</span><strong>${usd(plan.totals.pendingCents)}</strong><span>${plan.lines.length} lines</span></a>
@@ -331,7 +332,7 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
   const { config, plan } = ctx;
   const deals = config.deals;
   if (!deals.length) {
-    return layout({ active: 'deals', title: 'Deals & allocations', ctx, body: '<h1>Deals &amp; allocations</h1><p class="sub">No Deals tags found in Campfire yet.</p>' });
+    return layout({ active: 'deals', title: 'Deals & Allocations', ctx, body: '<h1 class="title">Deals &amp; Allocations</h1><p class="sub">No Deals tags found in Campfire yet.</p>' });
   }
   const pendingBy = new Map();
   for (const l of plan.lines) if (l.dealsTag) pendingBy.set(l.dealsTag, (pendingBy.get(l.dealsTag) || 0) + 1);
@@ -372,8 +373,8 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
 
   const flashHtml = flash ? `<div class="banner ${flash.ok ? 'good' : 'bad'}">${esc(flash.text)}</div>` : '';
   return layout({
-    active: 'deals', title: 'Deals & allocations', ctx, scripts: ['/static/deals.js'],
-    body: `${flashHtml}<div class="head"><div><h1>Deals &amp; allocations</h1><p class="sub">Every Deals tag in ${ctx.demo ? 'the demo data' : 'Campfire'}. Its billing type decides who gets invoiced.</p></div>
+    active: 'deals', title: 'Deals & Allocations', ctx, scripts: ['/static/deals.js'],
+    body: `${flashHtml}<div class="head"><div><h1 class="title">Deals &amp; Allocations</h1><p class="sub">Every Deals tag in ${ctx.demo ? 'the demo data' : 'Campfire'}. Its billing type decides who gets invoiced.</p></div>
 ${needs.length ? pill(`${needs.length} need${needs.length === 1 ? 's' : ''} setup`, 'background:var(--bad-tint);color:var(--bad);font-size:13px;padding:6px 12px') : pill('All deals set up', 'background:var(--good-tint);color:var(--good);font-size:13px;padding:6px 12px')}</div>
 <div class="split"><div class="card side" style="overflow:hidden"><div class="cardhead"><span class="small muted"><b>${deals.length} deals</b></span></div>${list}</div>
 <div class="wide" style="display:flex;flex-direction:column;gap:16px">
@@ -562,7 +563,7 @@ export function invoicesPage(ctx, selected, flash = null) {
 
   return layout({
     active: 'invoices', title: 'Invoices', ctx, scripts: ['/static/queue.js'],
-    body: `${flashHtml}${setupNote}<div class="head"><div><h1>Create invoices</h1><p class="sub">One invoice per billback customer, once every deal feeding it is approved.</p></div>
+    body: `${flashHtml}${setupNote}<div class="head"><div><h1 class="title">Create invoices</h1><p class="sub">One invoice per billback customer, once every deal feeding it is approved.</p></div>
 ${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm"><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
 ${why && ctx.admin ? `<p class="sub" style="margin:0">${esc(why)}</p>` : ''}
 <div class="split"><div class="wide" style="display:flex;flex-direction:column;gap:16px"><div class="card">
@@ -651,7 +652,7 @@ ${ep?.error ? row('Endpoints', `<span class="no">${esc(ep.error)}</span>`) : ep 
 </tbody></table></div></details>`;
   return layout({
     active: 'settings', title: 'Settings', ctx,
-    body: `${flashHtml}<div class="head"><div><h1>Settings</h1><p class="sub">How Rekindle connects to Campfire.</p></div></div>
+    body: `${flashHtml}<div class="head"><div><h1 class="title">Settings</h1><p class="sub">How Rekindle connects to Campfire.</p></div></div>
 ${ctx.user?.campfireUserId != null ? `<div class="banner ${ctx.admin ? 'good' : 'demo'}">Signed in from Campfire as user <b>${esc(ctx.user.campfireUserId)}</b>${ctx.user.workspace != null ? ` in workspace <b>${esc(ctx.user.workspace)}</b>` : ''}. ${ctx.admin ? 'You are an admin.' : `To make this user an admin, add <code>campfire:${esc(ctx.user.campfireUserId)}</code> to <code>REKINDLE_ADMINS</code> on Render.`}${ctx.user.workspace != null ? ` To accept only this workspace, set <code>REKINDLE_CAMPFIRE_WORKSPACES</code> to <code>${esc(ctx.user.workspace)}</code>.` : ''}</div>` : ''}
 ${ctx.loadError ? `<div class="banner bad">Couldn't read Campfire just now: ${esc(ctx.loadError)}</div>` : ''}
 <div class="card"><div class="pad"><h2 style="margin:0">Campfire connection</h2>${status}</div>${details}${actions}</div>
