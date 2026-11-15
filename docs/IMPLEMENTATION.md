@@ -2,7 +2,7 @@
 
 # Rekindle Implementation Guide
 
-November 14, 2026 · David Silver
+November 14, 2026 · David Silver · See also the [Roadmap](ROADMAP.md)
 
 ## Overview
 
