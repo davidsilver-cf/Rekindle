@@ -133,7 +133,7 @@ Give the app only what Rekindle uses; everything else stays No access.
 | Section | Item | Level |
 | --- | --- | --- |
 | Accounting | Bills | Write |
-| Accounting | Invoices | Write (not Draft) |
+| Accounting | Invoices | Write (not Draft); also lets the Dashboard read invoices and payments |
 | Accounting | Journal Entries | Write (reclass entries) |
 | Organization | Tags (Write, to create deals and billback customers), Custom Fields, Departments, Entities, Products and Services, Chart of Accounts, Vendors and Payees | Read |
 | Identity | openid, email, profile | On |
@@ -187,6 +187,7 @@ Run one real bill end to end with writing switched on before handing over; it ca
 - [ ] Billback Queue shows the lines, with no exceptions
 - [ ] Set `REKINDLE_WRITE=true` in Render; **Stamp** fills Billing Type and Billback Customer on the bill; a line set by hand is untouched
 - [ ] Approvals: each deal's approver approves; Invoices shows the customers as **Approved · ready** (a customer with some deals not yet approved shows **Approved lines ready** and the amount waiting, linked to those deals)
+- [ ] Dashboard: invoiced and collected match Campfire's invoices for one deal; no red "Couldn't read invoices" banner
 - [ ] Download a draft PDF; the **Payment Information** box shows the entity's Invoice Message
 - [ ] Create one invoice; it appears in Campfire with the PDF attached and one line per source line
 - [ ] Invoice lines carry department, Deals, Recharge Category, Class, Billback Customer and Billback Status = Billed
@@ -209,6 +210,7 @@ The finance team's routine is: clear exceptions on the Billback Queue, get deals
 
 | Screen | What it shows | What you do there |
 | --- | --- | --- |
+| Dashboard | The firm at a glance: **Unbilled** (with line count and oldest age), **Unbilled over 90 days**, **Invoiced**, **Collected** and **Outstanding** (with the past-due part); unbilled by age (0–30, 31–60, 61–90, over 90 days since the bill date); where unbilled stands (needs setup, waiting for approval, approved, awaiting reclass); invoiced vs collected by deal; tables **By deal** and **By billback customer**. Pick a deal (dropdown, or click it) for its unbilled lines, oldest first, and its invoices with status and amount collected | Spot old unbilled amounts and past-due invoices; filter any table and **Export CSV**; open an invoice in Campfire from a deal's page |
 | Billback Queue | Every Pending line on 13190: deal, billing type, who it bills, status | Fix exceptions; select lines and **Stamp** any the webhook missed; **Review for approval** |
 | Deals & Allocations | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; change owners and %; set approvers (admins) |
 | Approvals | The run grouped by deal, with each deal's total and status | Approvers **Approve** or **Send back** with a note; click a line count to see the lines |
@@ -228,6 +230,7 @@ Inside Campfire's own records:
 3. Invoices: create invoices for the customers you're ready to bill (each invoice carries only approved deals' lines; the confirmation page lists what's left off) and check the totals against the queue. To invoice one Billing group at a time (for example Fund deals separately from Deal deals), pick it in the **Billing group** filter first: amounts and invoices then include only that group's deals, and the rest wait for their own invoices. Set the **Invoice date** first if they should be dated earlier (for example month-end); the due date follows the terms from that date, and the confirmation page flags a backdated date so you can check the period isn't locked.
 4. Reclass: post the month's Expense lines (date it month-end if you close that way).
 5. Check Invoice history and Reclass history are all **Complete**.
+6. Dashboard: review **Unbilled over 90 days** and past-due invoices, and export the By deal table if the controller wants it for the close file.
 
 **Fixing exceptions**
 
@@ -262,6 +265,8 @@ Most problems show as a red banner in Rekindle or a line in Render's **Logs**; m
 | A panel says "refused to connect" | Campfire's address isn't allowed to frame Rekindle | Add it to `REKINDLE_FRAME_ANCESTORS` |
 | Invoice history: **Check Campfire** | Rekindle couldn't tell whether the invoice was created | Search Campfire for the `RK-…` reference; press **It was created** (with its ID) or **It wasn't created** |
 | Invoice history: **Created · PDF not attached** | A later step failed | **Retry**; it never creates a second invoice |
+| Dashboard: red banner **Couldn't read invoices from Campfire**; Invoiced and Collected show $0 | The app can't read invoices (Render's Logs show `dashboard_invoices_failed`) | Give the app Accounting → Invoices (Step 3b), then Reconnect; the unbilled side still works meanwhile |
+| Dashboard: an invoice made by hand isn't counted | Its lines have no Deals tag | Add the Deals tag to the invoice lines in Campfire; the dashboard refreshes within 2 minutes |
 | No **Payment Information** box on the PDF | The entity's Invoice Message is blank, or Campfire refused Rekindle's read of the entity (Render's Logs show `entity_message_failed`) | Fill in Invoice Message on the entity; for a refusal, check the app's permissions (Step 3b) and Settings → fallbacks. The invoice is created either way |
 | Invoice lines missing tags | Invoice made before tags were sent, or Campfire dropped them | **Re-apply tags** on the run or the invoice panel |
 | New bills don't stamp on their own | Webhook missing, or writing off | Step 3f; `REKINDLE_WRITE=true`; or Stamp from the queue |
