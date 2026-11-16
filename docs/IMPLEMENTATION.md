@@ -153,6 +153,7 @@ Add these on the app. Space the **Order** values by 10 so they appear in workflo
 | Kind | Label | Where | URL template | Order |
 | --- | --- | --- | --- | --- |
 | Navigation | Rekindle | Top level, URL blank (a section) | — | — |
+| Navigation | Dashboard | Under Rekindle | `https://<host>/dashboard` | 5 |
 | Navigation | Billback Queue | Under Rekindle | `https://<host>/` | 10 |
 | Navigation | Deals & Allocations | Under Rekindle | `https://<host>/deals` | 20 |
 | Navigation | Approvals | Under Rekindle | `https://<host>/approvals` | 30 |
