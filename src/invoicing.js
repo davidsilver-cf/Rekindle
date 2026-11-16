@@ -223,7 +223,8 @@ export async function advanceRun(runId, { store, api, config, log = () => {} }) 
   if (run.status === 'created') {
     try {
       const { customer, plan, date, paymentInfo } = run.payload.pdfInput;
-      const pdf = buildInvoicePdf({ customer, plan, branding: { ...(config.invoice || {}), ...(paymentInfo ? { paymentInfo } : {}) }, invoice: { date, number: run.invoice_number, draft: false } });
+      const logo = await logoFor(customer, plan, { config, api, log });
+      const pdf = buildInvoicePdf({ customer, plan, branding: { ...(config.invoice || {}), ...(paymentInfo ? { paymentInfo } : {}), ...(logo ? { logo } : {}) }, invoice: { date, number: run.invoice_number, draft: false } });
       await store.updateRun(run.id, { pdf });
       await api.uploadFile({ model: 'invoice', objectId: run.campfire_invoice_id, filename: invoiceFilename(`${run.invoice_number}-${run.customer_name}`, false), data: pdf });
       await store.updateRun(run.id, { status: 'pdf_attached', error: tagNoteOf(run) });
@@ -275,6 +276,20 @@ export async function paymentInfoFor(customer, plan, { config, api, log = () => 
   const entityId = byId.get(customer.sources[0]?.lineId)?.entityId ?? null;
   try { return await api.entityInvoiceMessage(entityId); } catch (err) {
     log(JSON.stringify({ event: 'entity_message_failed', entity: entityId, error: err.message }));
+    return null;
+  }
+}
+
+// The PDF logo: the entity's logo in Campfire, or config.invoice.logoUrl when
+// set. A missing or unreadable logo never blocks an invoice.
+export async function logoFor(customer, plan, { config, api, log = () => {} }) {
+  const byId = new Map(plan.lines.map((l) => [l.lineId, l]));
+  const entityId = byId.get(customer.sources[0]?.lineId)?.entityId ?? null;
+  try {
+    if (config.invoice?.logoUrl && api?.fetchLogo) return await api.fetchLogo(config.invoice.logoUrl);
+    return api?.entityLogo ? await api.entityLogo(entityId) : null;
+  } catch (err) {
+    log(JSON.stringify({ event: 'entity_logo_failed', entity: entityId, error: err.message }));
     return null;
   }
 }

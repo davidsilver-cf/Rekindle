@@ -152,3 +152,23 @@ test('PDF shows the entity invoice message as Payment Information, between the s
   const none = pageText(buildInvoicePdf({ customer: emp, plan, branding: config.invoice, invoice: { date: '2026-11-13' } })).join('\n');
   assert.ok(!none.includes('PAYMENT INFORMATION'));
 });
+
+test('PDF draws the entity logo (PNG with transparency, JPEG, palette PNG); unreadable logos are skipped', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { readImage } = await import('../src/pdf-image.js');
+  for (const f of ['logo.png', 'logo.jpg', 'logo-palette.png']) {
+    const img = readImage(readFileSync(new URL(`./fixtures/${f}`, import.meta.url)));
+    assert.equal(img.width, 360, f);
+    assert.equal(img.height, 120, f);
+  }
+  assert.ok(readImage(readFileSync(new URL('./fixtures/logo.png', import.meta.url))).smask);
+  assert.equal(readImage(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')), null);
+  const logo = readFileSync(new URL('./fixtures/logo.png', import.meta.url));
+  const buf = buildInvoicePdf({ customer: emp, plan, branding: { ...config.invoice, logo }, invoice: { date: '2026-11-13' } });
+  const s = buf.toString('latin1');
+  assert.match(s, /\/Subtype \/Image \/Width 360 \/Height 120/);
+  assert.match(s, /\/SMask \d+ 0 R/);
+  assert.match(s, /\/XObject << \/Im1 \d+ 0 R >>/);
+  const none = buildInvoicePdf({ customer: emp, plan, branding: { ...config.invoice, logo: Buffer.from('not an image') }, invoice: { date: '2026-11-13' } });
+  assert.doesNotMatch(none.toString('latin1'), /\/Subtype \/Image/);
+});

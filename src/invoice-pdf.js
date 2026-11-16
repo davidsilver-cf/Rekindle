@@ -1,6 +1,7 @@
 // Rekindle invoice PDF: page 1 is the invoice (one line per recharge
 // category), followed by supporting detail listing every source bill line,
 // its share and the amount billed. Drafts carry a DRAFT watermark.
+import { readImage, fitBox } from './pdf-image.js';
 import { Pdf, PAGE, wrap, fit } from './pdf.js';
 
 const M = 54; // margin
@@ -64,6 +65,7 @@ export function invoiceData({ customer, plan, branding = {}, invoice = {} }) {
     remitTo: branding.remitTo || [],
     footer: branding.footer || '',
     paymentInfo: String(branding.paymentInfo || '').trim(),
+    logo: branding.logo ? readImage(branding.logo) : null,
     accent: branding.accentColor || '#C2410C',
     customer: customer.customer,
     number: invoice.number || null,
@@ -94,9 +96,17 @@ export function buildInvoicePdf(args) {
 
   // ---- Page 1: the invoice
   let p = newPage();
-  p.text(M, 64, fit(d.from, 300, 16, 'bold'), { size: 16, font: 'bold' });
-  let top = 82;
+  // The entity's logo (from Campfire) above the company name, at most 180 × 52.
+  let shift = 0;
+  if (d.logo) {
+    const { w, h } = fitBox(d.logo.width, d.logo.height, 180, 52);
+    p.image(pdf.addImage(d.logo), M, 34, w, h);
+    shift = 34 + h + 22 - 64 + 2;
+  }
+  p.text(M, 64 + shift, fit(d.from, 300, 16, 'bold'), { size: 16, font: 'bold' });
+  let top = 82 + shift;
   for (const l of d.fromLines) { p.text(M, top, fit(l, 300, 9.5), { size: 9.5, color: QUIET }); top += 13; }
+  const fromEnd = top;
 
   p.text(RIGHT, 70, 'INVOICE', { size: 26, font: 'bold', align: 'right', color: d.accent });
   const meta = [
@@ -113,7 +123,7 @@ export function buildInvoicePdf(args) {
   }
 
   // Bill to
-  top = Math.max(top, 96 + 13 * d.fromLines.length) + 22;
+  top = Math.max(top, fromEnd - 13, 96 + 13 * d.fromLines.length) + 22;
   p.rect(M, top, 504, 64, { fill: TINT });
   p.text(M + 14, top + 18, 'BILL TO', { size: 8, font: 'bold', color: QUIET });
   p.text(M + 14, top + 36, fit(d.customer.name, 300, 13, 'bold'), { size: 13, font: 'bold' });

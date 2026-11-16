@@ -101,6 +101,11 @@ class Page {
     this.ops.push(`q ${rgb(color)} RG ${num(width)} w ${num(x1)} ${num(this.y(t1))} m ${num(x2)} ${num(this.y(t2))} l S Q`);
   }
 
+  // An image added with Pdf.addImage, w × h points, its top-left at (x, top).
+  image(name, x, top, w, h) {
+    this.ops.push(`q ${num(w)} 0 0 ${num(h)} ${num(x)} ${num(this.y(top + h))} cm /${name} Do Q`);
+  }
+
   rect(x, top, w, h, { fill = null, stroke = null, width = 0.75 } = {}) {
     const parts = ['q'];
     if (fill) parts.push(`${rgb(fill)} rg`);
@@ -113,6 +118,7 @@ class Page {
 export class Pdf {
   constructor({ title = 'Document', author = '' } = {}) {
     this.pages = [];
+    this.images = [];
     this.title = title;
     this.author = author;
   }
@@ -123,6 +129,12 @@ export class Pdf {
     return p;
   }
 
+  // img from readImage(); returns the name to draw it with.
+  addImage(img) {
+    this.images.push(img);
+    return `Im${this.images.length}`;
+  }
+
   toBuffer() {
     const objs = [];
     const add = (body) => { objs.push(body); return objs.length; };
@@ -130,11 +142,17 @@ export class Pdf {
     const pagesId = add(null);
     const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    const xobjects = this.images.map((img, i) => {
+      const smask = img.smask ? add({ dict: `<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} ${img.smask.dict} /Length ${img.smask.data.length} >>`, stream: img.smask.data }) : null;
+      const id = add({ dict: `<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} ${img.dict}${smask ? ` /SMask ${smask} 0 R` : ''} /Length ${img.data.length} >>`, stream: img.data });
+      return `/Im${i + 1} ${id} 0 R`;
+    });
+    const xres = xobjects.length ? ` /XObject << ${xobjects.join(' ')} >>` : '';
     const kids = [];
     for (const p of this.pages) {
       const data = deflateSync(Buffer.from(p.ops.join('\n'), 'latin1'));
       const content = add({ dict: `<< /Length ${data.length} /Filter /FlateDecode >>`, stream: data });
-      kids.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE.width} ${PAGE.height}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${content} 0 R >>`));
+      kids.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE.width} ${PAGE.height}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >>${xres} >> /Contents ${content} 0 R >>`));
     }
     objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
     objs[pagesId - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`;

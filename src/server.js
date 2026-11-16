@@ -14,7 +14,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName, entityInvoiceMessage, listInvoices } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName, entityInvoiceMessage, listInvoices, entityLogo, fetchLogo } from './campfire.js';
 import { dashboardData } from './dashboard.js';
 import { dashboardPage, dashboardCsv } from './dashboard-ui.js';
 import { validateNewDeal, createDeal } from './newdeal.js';
@@ -32,9 +32,9 @@ import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discover
 import { connectionLoaded, connection, saveConnection, clearConnection, loadConnection, fallbacks } from './campfire.js';
 import { getStore, StoreError, ShareTakenError } from './store.js';
 
-const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice, createJournalEntry, entityInvoiceMessage };
+const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice, createJournalEntry, entityInvoiceMessage, entityLogo, fetchLogo };
 import { dealGroups, withStatus, canDecide, customerReady } from './approvals.js';
-import { startInvoice, advanceRun, prepareInvoice, retagRun, paymentInfoFor, todayET } from './invoicing.js';
+import { startInvoice, advanceRun, prepareInvoice, retagRun, paymentInfoFor, logoFor, todayET } from './invoicing.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
@@ -712,7 +712,8 @@ async function handle(req, res) {
     const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
     if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
     const paymentInfo = await paymentInfoFor(customer, plan, { config, api: campfireApi, log: console.log });
-    const pdf = buildInvoicePdf({ customer, plan, branding: { ...(config.invoice || {}), ...(paymentInfo ? { paymentInfo } : {}) }, invoice: { draft: true } });
+    const logo = await logoFor(customer, plan, { config, api: campfireApi, log: console.log });
+    const pdf = buildInvoicePdf({ customer, plan, branding: { ...(config.invoice || {}), ...(paymentInfo ? { paymentInfo } : {}), ...(logo ? { logo } : {}) }, invoice: { draft: true } });
     res.writeHead(200, {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${invoiceFilename(customer.customer.name)}"`,

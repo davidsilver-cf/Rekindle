@@ -331,6 +331,26 @@ export async function entityInvoiceMessage(id) {
   return String(e?.invoice_message || '').trim() || null;
 }
 
+// The entity's logo (Settings → Entities → logo), as bytes for the PDF.
+// Public CDN link, so no Campfire credentials go with it. Cached 10 minutes.
+const logoCache = new Map();
+export async function fetchLogo(url) {
+  if (!url || !/^https:\/\//i.test(url)) return null;
+  const hit = logoCache.get(url);
+  if (hit && hit.at > Date.now() - 600_000) return hit.buf;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'follow' });
+  if (!res.ok) throw new Error(`logo ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > 3_000_000) throw new Error('logo larger than 3 MB');
+  logoCache.set(url, { at: Date.now(), buf });
+  return buf;
+}
+export async function entityLogo(id) {
+  if (id === null || id === undefined) return null;
+  const e = await getEntity(id);
+  return e?.logo_url ? fetchLogo(e.logo_url) : null;
+}
+
 export async function listCustomers({ fresh = false } = {}) {
   if (!fresh && customersCache && customersCache.at > Date.now() - 300_000) return customersCache.rows;
   const limit = 200;
