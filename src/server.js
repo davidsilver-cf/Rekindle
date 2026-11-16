@@ -14,7 +14,9 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName, entityInvoiceMessage } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName, entityInvoiceMessage, listInvoices } from './campfire.js';
+import { dashboardData } from './dashboard.js';
+import { dashboardPage, dashboardCsv } from './dashboard-ui.js';
 import { validateNewDeal, createDeal } from './newdeal.js';
 import { waitingLines, prepareReclass, startReclass, advanceReclass, todayISO, matchAccount } from './reclass.js';
 import { processBills } from './process.js';
@@ -32,12 +34,13 @@ import { getStore, StoreError, ShareTakenError } from './store.js';
 
 const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice, createJournalEntry, entityInvoiceMessage };
 import { dealGroups, withStatus, canDecide, customerReady } from './approvals.js';
-import { startInvoice, advanceRun, prepareInvoice, retagRun, paymentInfoFor } from './invoicing.js';
+import { startInvoice, advanceRun, prepareInvoice, retagRun, paymentInfoFor, todayET } from './invoicing.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
   '/static/queue.js': { file: '../public/queue.js', type: 'text/javascript; charset=utf-8' },
   '/static/deals.js': { file: '../public/deals.js', type: 'text/javascript; charset=utf-8' },
+  '/static/dashboard.js': { file: '../public/dashboard.js', type: 'text/javascript; charset=utf-8' },
   '/static/link.js': { file: '../public/link.js', type: 'text/javascript; charset=utf-8' },
   '/static/newdeal.js': { file: '../public/newdeal.js', type: 'text/javascript; charset=utf-8' },
   // The Rekindle flame as the browser-tab icon (/favicon.ico for browsers that ask for it directly).
@@ -674,6 +677,28 @@ async function handle(req, res) {
   }
 
   // ---- Screens and actions need a signed-in user
+  if (req.method === 'GET' && (url.pathname === '/dashboard' || url.pathname === '/dashboard.csv')) {
+    if (!user) return redirect(res, '/login');
+    const ctx = await screenContext(user);
+    let invoices = [];
+    let invoicesError = null;
+    if (!ctx.demo) {
+      try { invoices = await listInvoices({ keepGroup: ctx.config.tagGroups.deals }); } catch (err) {
+        invoicesError = err.message;
+        console.log(JSON.stringify({ event: 'dashboard_invoices_failed', error: err.message }));
+      }
+    }
+    const deal = url.searchParams.get('deal') || null;
+    const d = dashboardData({ plan: ctx.plan, groups: ctx.groups, invoices, config: ctx.config, today: todayET(), deal });
+    if (url.pathname === '/dashboard.csv') {
+      const view = ['deals', 'customers', 'invoices', 'unbilled'].includes(url.searchParams.get('view')) ? url.searchParams.get('view') : 'unbilled';
+      const name = `Rekindle-${view}${deal ? `-${deal.replace(/[^A-Za-z0-9]+/g, '-')}` : ''}-${d.today}.csv`;
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+      return res.end('\uFEFF' + dashboardCsv(d, view));
+    }
+    return html(res, dashboardPage({ ...ctx, embed, theme: res.rekindleTheme, path: url.pathname + url.search, linkUrl: linkUrlFor(user, req) }, d, { invoicesError }));
+  }
+
   if (req.method === 'GET' && SCREENS[url.pathname]) {
     if (!user) return redirect(res, '/login');
     return html(res, SCREENS[url.pathname]({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: url.pathname + url.search, linkUrl: linkUrlFor(user, req) }, url));

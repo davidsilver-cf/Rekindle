@@ -18,9 +18,12 @@ atlasBill.lines = [{ ...structuredClone(bills[0].lines[1]), id: 9500101, descrip
   tags: [{ id: 1029001, group: 46588, name: 'Project Atlas', is_deleted: false }, { id: 1027811, group: 46589, name: 'Legal', is_deleted: false }, { id: 1027943, group: 46610, name: 'Pending', is_deleted: false }] }];
 delete atlasBill.lines[0].custom_field_defaultbillingtype;
 let served = bills;
+const dashInvoice = { id: 77001, invoice_number: 'INV-0000009', invoice_date: '2026-10-01', due_date: '2026-10-31', status: 'partially_paid', client_name: 'Fund II Main (CUST-0000002)', total_amount: '1000.00', amount_paid: '400.00', amount_due: '600.00',
+  lines: [{ amount: '1000.00', tags: [{ id: 1027965, group: 46588, name: 'Fund II', is_deleted: false }] }] };
 const fake = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/coa/api/v1/bill') return res.end(JSON.stringify({ count: served.length, results: served }));
+  if (url.pathname === '/coa/api/v1/invoice') return res.end(JSON.stringify({ count: 1, results: [dashInvoice] }));
   if (url.pathname === '/coa/api/tag') { const r = tags[url.searchParams.get('group')] || []; return res.end(JSON.stringify({ count: r.length, results: r })); }
   res.statusCode = 404; res.end();
 });
@@ -227,4 +230,25 @@ test('approvals drill through to exactly the lines being approved', async () => 
   assert.match(appr, /<tr id="deal-1027965">/);
   // An unknown deal just shows the normal queue.
   assert.doesNotMatch(await (await get('/?review=999', admin)).text(), /Reviewing for approval/);
+});
+
+test('dashboard: overview, per-deal drill-down and CSV', async () => {
+  const cookie = as('david@campfire.ai');
+  const r = await get('/dashboard', cookie);
+  assert.equal(r.status, 200);
+  const page = await r.text();
+  assert.match(page, /Unbilled by age/);
+  assert.match(page, /By deal/);
+  assert.match(page, /\$1,000/); // invoiced
+  assert.match(page, /\$400/); // collected
+  assert.match(page, /href="\/dashboard\?deal=Fund%20II"/);
+  const deal = await (await get('/dashboard?deal=Fund%20II', cookie)).text();
+  assert.match(deal, /INV-0000009/);
+  assert.match(deal, /Partly paid/);
+  assert.match(deal, /Unbilled lines/);
+  const csv = await get('/dashboard.csv?view=invoices&deal=Fund%20II', cookie);
+  assert.match(csv.headers.get('content-type'), /text\/csv/);
+  const body = await csv.text();
+  assert.match(body, /INV-0000009,2026-10-01,2026-10-31,Fund II Main,Fund II,Partly paid,1000.00,400.00,600.00/);
+  assert.equal((await get('/dashboard')).status, 303);
 });

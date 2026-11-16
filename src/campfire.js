@@ -290,6 +290,24 @@ export async function findCustomerByName(name) {
 
 // All active customers (id, name), paged; cached for five minutes.
 let customersCache = null;
+// Invoices, for the dashboard: only those with a line carrying a tag from
+// keepGroup (the Deals tag group), so ordinary sales invoices are skipped.
+// Cached 2 minutes.
+let invoicesCache = null;
+export async function listInvoices({ keepGroup, fresh = false } = {}) {
+  if (!fresh && invoicesCache && invoicesCache.group === keepGroup && invoicesCache.at > Date.now() - 120_000) return invoicesCache.rows;
+  const limit = 200;
+  const all = [];
+  for (let offset = 0; offset < 20_000; offset += limit) {
+    const page = await request('/coa/api/v1/invoice', { limit, offset });
+    const rows = Array.isArray(page) ? page : page.results || [];
+    all.push(...rows.filter((inv) => (inv.lines || []).some((l) => (l.tags || []).some((t) => Number(t.group) === Number(keepGroup)))));
+    if (rows.length < limit) break;
+  }
+  invoicesCache = { at: Date.now(), group: keepGroup, rows: all };
+  return all;
+}
+
 // An entity's invoice settings (Settings → Entities → Invoice). Campfire's
 // "Invoice Message" is where firms keep payment instructions. Cached 5 minutes.
 const entityCache = new Map();

@@ -28,6 +28,7 @@ Sign in at the service's address with `REKINDLE_ADMIN_TOKEN`. Without `CAMPFIRE_
 
 | Screen | Shows | Works today |
 |---|---|---|
+| Dashboard | Unbilled amounts and their age (from open lines), invoiced, collected and outstanding (from Campfire invoices with a Deals tag); by deal and by customer, drilling into one deal's lines and invoices; CSV export | Yes; reads invoices (Accounting: Invoices = Read) |
 | Billback Queue | Pending 13190 lines, billing type, billback customer, exceptions | Yes; **Stamp now** when writing is on |
 | Deals & Allocations | Each deal's billing type, customer, owners and % | Read-only (edits come with the database) |
 | Approvals | What each customer owes, share of the run, checks | Review only (recording approvals needs the database) |

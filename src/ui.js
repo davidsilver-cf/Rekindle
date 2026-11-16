@@ -142,6 +142,7 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
   const needSetup = (ctx.config?.deals || []).filter((d) => !d.billingType).length;
   // [href, key, label, count, alert, title]; an alert count is red so it gets noticed.
   const items = [
+    ['/dashboard', 'dashboard', 'Dashboard', null, false, ''],
     ['/', 'queue', 'Billback Queue', ctx.plan.lines.length, false, 'Pending lines'],
     ['/deals', 'deals', 'Deals &amp; Allocations', needSetup || null, true, `${needSetup} deal${needSetup === 1 ? '' : 's'} need${needSetup === 1 ? 's' : ''} setup`],
     ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null, false, 'Deals waiting for approval'],
