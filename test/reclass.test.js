@@ -262,7 +262,7 @@ test('Invoices: Billing Group filter limits customers and amounts to that group\
   const names = (p) => [...p.matchAll(/<a href="\/invoices\?customer=([^"&]+)/g)].map((m) => decodeURIComponent(m[1])).sort();
   const all = names(page);
   page = await (await get('/invoices?group=1078263')).text();
-  assert.match(page, /Showing only <b>Fund<\/b> deals/);
+  assert.match(page, /Showing <b>Fund<\/b> deals/);
   const fund = names(page);
   assert.ok(fund.length > 0 && fund.every((n) => n.startsWith('Fund II')), fund.join());
   assert.match(page, /&amp;group=1078263|&group=1078263/);
@@ -277,4 +277,25 @@ test('a Billback Customer tag with no customer attached links to the Campfire cu
   const { loadConfig } = await import('../src/config.js');
   const cfg = await loadConfig();
   assert.equal(cfg.billbackCustomers.find((c) => c.name === 'Caribbean Oil').customerId, 23409329);
+});
+
+test('Invoices: bill-date range and customer filters narrow the screen, the draft PDF and what gets created', async () => {
+  const all = await (await get('/invoices')).text();
+  assert.match(all, /name="from"/);
+  assert.match(all, /name="to"/);
+  assert.match(all, /<select name="cust">/);
+  // A range before any bill: nothing to invoice.
+  const none = await (await get('/invoices?to=2000-01-01')).text();
+  assert.match(none, /lines from bills dated on or before 01\/01\/2000/);
+  assert.doesNotMatch(none, /Download PDF \(draft\)/);
+  // One customer only.
+  const sel = all.slice(all.indexOf('<select name="cust">'), all.indexOf('</select>', all.indexOf('<select name="cust">')));
+  const names = [...sel.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
+  const one = names[0];
+  const page = await (await get(`/invoices?cust=${encodeURIComponent(one)}`)).text();
+  const rows = [...page.matchAll(/<a href="\/invoices\?customer=([^"&]+)/g)].map((m) => decodeURIComponent(m[1]));
+  assert.ok(rows.length >= 1 && rows.every((n) => n === one), rows.join(','));
+  assert.match(page, new RegExp(`<input type="hidden" name="cust" value="${one.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}">`));
+  // Bad dates are ignored rather than breaking the page.
+  assert.equal((await get('/invoices?from=nonsense')).status, 200);
 });

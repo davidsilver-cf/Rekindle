@@ -286,27 +286,45 @@ const SCREENS = {
     } else if (s.has('retried')) {
       flash = { ok: s.get('retried') === 'complete', text: s.get('retried') === 'complete' ? 'Finished.' : 'Still not finished; see the message in Invoice history.' };
     }
-    return invoicesPage(byBillingGroup(ctx, s.get('group')), s.get('customer'), flash);
+    return invoicesPage(invoiceView(ctx, invoiceFilter(s)), s.get('customer'), flash);
   },
 };
 
-// What can be invoiced now: only lines from approved deals (optionally one
-// Billing Group; "none" = deals without one). Each customer's amount, lines
-// and PDF count only those; lines from deals not yet approved are listed as
-// waiting and stay for a later invoice.
-function invoiceView(ctx, group) {
+// The Invoices screen's filters, from a query string or a posted form:
+// billing group ("none" = deals without one), bill dates from/to, customer.
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+function invoiceFilter(params) {
+  const day = (k) => (ISO_DAY.test(params.get(k) || '') ? params.get(k) : '');
+  return { group: params.get('group') || '', from: day('from'), to: day('to'), cust: params.get('cust') || '' };
+}
+export function filterQuery(f) {
+  return ['group', 'from', 'to', 'cust'].filter((k) => f?.[k]).map((k) => `${k}=${encodeURIComponent(f[k])}`).join('&');
+}
+
+// What can be invoiced now: only lines from approved deals, within the
+// filters (billing group, bill date range, customer). Each customer's amount,
+// lines and PDF count only those; lines from deals not yet approved are
+// listed as waiting and stay for a later invoice, and lines outside the
+// filters stay for their own invoices.
+function invoiceView(ctx, filter = {}) {
+  const f = typeof filter === 'string' ? { group: filter } : { group: '', from: '', to: '', cust: '', ...filter };
+  const group = f.group;
   const groupOf = new Map(ctx.config.deals.map((d) => [d.dealsTag, d.billingGroup ? String(d.billingGroup.id) : 'none']));
-  const inGroup = (l) => !group || groupOf.get(l.dealsTag) === String(group);
+  const inDates = (l) => (!f.from || (l.billDate || '') >= f.from) && (!f.to || (l.billDate || '') <= f.to);
+  const inGroup = (l) => (!group || groupOf.get(l.dealsTag) === String(group)) && inDates(l);
   const approved = new Set((ctx.groups || []).filter((g) => g.status === 'approved').flatMap((g) => g.lines.map((l) => l.lineId)));
   const ready = customersFor(ctx.plan, (l) => inGroup(l) && approved.has(l.lineId));
   const held = customersFor(ctx.plan, (l) => inGroup(l) && !approved.has(l.lineId));
   const byId = new Map(ctx.plan.lines.map((l) => [l.lineId, l]));
   const waiting = new Map(held.map((c) => [c.customer.name, { cents: c.cents, sources: c.sources, deals: [...new Set(c.sources.map((x) => byId.get(x.lineId)?.dealsTag).filter(Boolean))].sort() }]));
   // Customers with nothing approved yet still get a row, with nothing to invoice.
-  const customers = [...ready, ...held.filter((c) => !ready.some((r) => r.customer.name === c.customer.name)).map((c) => ({ customer: c.customer, cents: 0, sources: [], categories: new Map() }))];
-  const plan = { ...ctx.plan, customers, totals: { ...ctx.plan.totals, billedCents: ready.reduce((t, c) => t + c.cents, 0) } };
+  const allCustomers = [...ready, ...held.filter((c) => !ready.some((r) => r.customer.name === c.customer.name)).map((c) => ({ customer: c.customer, cents: 0, sources: [], categories: new Map() }))];
+  const customers = f.cust ? allCustomers.filter((c) => c.customer.name === f.cust) : allCustomers;
+  const shown = new Set(customers.map((c) => c.customer.name));
+  const plan = { ...ctx.plan, customers, totals: { ...ctx.plan.totals, billedCents: ready.filter((c) => shown.has(c.customer.name)).reduce((t, c) => t + c.cents, 0) } };
   const readiness = new Map(customers.map((c) => [c.customer.name, { ready: c.cents > 0, waitingOn: waiting.get(c.customer.name)?.deals || [] }]));
-  return { ...ctx, plan, readiness, waiting, billingGroupFilter: group ? String(group) : '' };
+  const customerNames = allCustomers.map((c) => c.customer.name).sort((a, b) => a.localeCompare(b));
+  return { ...ctx, plan, readiness, waiting, billingGroupFilter: group ? String(group) : '', invoiceFilter: { ...f, group: group ? String(group) : '' }, customerNames };
 }
 const byBillingGroup = invoiceView;
 
@@ -711,7 +729,7 @@ async function handle(req, res) {
     if (!user) return redirect(res, '/login');
     const store = await getStore();
     const [config, bills, invoiced] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares()]);
-    const plan = invoiceView(await screenContext(user), url.searchParams.get('group')).plan;
+    const plan = invoiceView(await screenContext(user), invoiceFilter(url.searchParams)).plan;
     const customer = plan.customers.find((c) => c.customer.name === url.searchParams.get('customer'));
     if (!customer) return send(res, 404, 'No invoice for that customer in the current run.');
     const paymentInfo = await paymentInfoFor(customer, plan, { config, api: campfireApi, log: console.log });
@@ -742,12 +760,12 @@ async function handle(req, res) {
     }
 
     if (url.pathname === '/invoices/confirm' || url.pathname === '/invoices/create') {
-      const ctx = byBillingGroup({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/invoices' }, form.get('group'));
+      const ctx = invoiceView({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/invoices' }, invoiceFilter(form));
       const names = new Set(form.getAll('customer'));
       // Approval is advice, not a gate: people decide when lines are charged.
       // The screens and the confirmation page say which deals aren't approved.
       const chosen = ctx.plan.customers.filter((c) => names.has(c.customer.name) && c.customer.customerId && c.cents > 0);
-      const back = ctx.billingGroupFilter ? `&group=${encodeURIComponent(ctx.billingGroupFilter)}` : '';
+      const back = filterQuery(ctx.invoiceFilter) ? `&${filterQuery(ctx.invoiceFilter)}` : '';
       if (!chosen.length) return redirect(res, `/invoices?nothing=1${back}`);
       // Invoice date: today unless the person picked another (backdating allowed).
       const date = form.get('date') || todayISO();

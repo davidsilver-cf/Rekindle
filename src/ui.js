@@ -545,6 +545,12 @@ function waitingLinks(ctx, names) {
   }).join(', ');
 }
 
+const shortDate = (iso) => { const [y, m, d] = String(iso || '').split('-'); return y ? `${m}/${d}/${y}` : ''; };
+// Invoices screen filters, carried through links and forms.
+const FILTER_KEYS = ['group', 'from', 'to', 'cust'];
+const invoiceFilterQuery = (f) => FILTER_KEYS.filter((k) => f?.[k]).map((k) => `${k}=${encodeURIComponent(f[k])}`).join('&');
+const filterInputs = (f) => FILTER_KEYS.filter((k) => f?.[k]).map((k) => `<input type="hidden" name="${k}" value="${esc(f[k])}">`).join('');
+
 export function invoicesPage(ctx, selected, flash = null) {
   const { plan } = ctx;
   const pick = plan.customers.find((c) => c.customer.name === selected) || plan.customers[0];
@@ -552,12 +558,20 @@ export function invoicesPage(ctx, selected, flash = null) {
   const canCreate = ctx.admin && ctx.write && !ctx.demo && durable;
   const linesById = new Map(plan.lines.map((l) => [l.lineId, l]));
   const grp = ctx.billingGroupFilter || '';
-  const keep = grp ? `&group=${encodeURIComponent(grp)}` : '';
+  const f = ctx.invoiceFilter || {};
+  const fq = invoiceFilterQuery(f);
+  const keep = fq ? `&${fq}` : '';
   const groups = ctx.config.billingGroups || [];
   const groupName = grp === 'none' ? 'No billing group' : groups.find((g) => String(g.id) === grp)?.name;
-  const groupBar = groups.length ? `<form class="filters" method="get" action="/invoices" role="search">
-<label class="filter"><span>Billing group</span><select name="group"><option value="">All</option>${groups.map((g) => `<option value="${esc(g.id)}"${String(g.id) === grp ? ' selected' : ''}>${esc(g.name)}</option>`).join('')}<option value="none"${grp === 'none' ? ' selected' : ''}>No billing group</option></select></label>
-<div class="filter-actions"><button class="btn" type="submit">Apply</button>${grp ? '<a class="btn" href="/invoices">Clear</a>' : ''}</div></form>` : '';
+  const anyFilter = Boolean(f.group || f.from || f.to || f.cust);
+  const groupBar = `<form class="filters" method="get" action="/invoices" role="search">
+${groups.length ? `<label class="filter"><span>Billing group</span><select name="group"><option value="">All</option>${groups.map((g) => `<option value="${esc(g.id)}"${String(g.id) === grp ? ' selected' : ''}>${esc(g.name)}</option>`).join('')}<option value="none"${grp === 'none' ? ' selected' : ''}>No billing group</option></select></label>` : ''}
+<label class="filter" style="min-width:150px"><span>Bill date from</span><input type="date" name="from" value="${esc(f.from || '')}"></label>
+<label class="filter" style="min-width:150px"><span>Bill date to</span><input type="date" name="to" value="${esc(f.to || '')}"></label>
+<label class="filter"><span>Customer</span><select name="cust"><option value="">All</option>${(ctx.customerNames || []).map((n) => `<option value="${esc(n)}"${n === f.cust ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+<div class="filter-actions"><button class="btn" type="submit">Apply</button>${anyFilter ? '<a class="btn" href="/invoices">Clear</a>' : ''}</div></form>`;
+  const dateNote = f.from || f.to ? `bills dated ${f.from && f.to ? `${esc(shortDate(f.from))} to ${esc(shortDate(f.to))}` : f.from ? `on or after ${esc(shortDate(f.from))}` : `on or before ${esc(shortDate(f.to))}`}` : '';
+  const filterNote = anyFilter ? `<p class="sub" style="margin:0">Showing ${[grp ? `<b>${esc(groupName || grp)}</b> deals` : '', dateNote ? `lines from ${dateNote}` : '', f.cust ? `customer <b>${esc(f.cust)}</b>` : ''].filter(Boolean).join(', ')}. Invoices created now include only these lines; the rest stay for later invoices.</p>` : '';
 
   const rows = plan.customers
     .map((c) => {
@@ -613,9 +627,9 @@ export function invoicesPage(ctx, selected, flash = null) {
   return layout({
     active: 'invoices', title: 'Invoices', ctx, scripts: ['/static/queue.js'],
     body: `${flashHtml}${setupNote}<div class="head"><div><h1 class="title">Create invoices</h1><p class="sub">One invoice per billback customer, with the lines from approved deals. Lines from deals not yet approved wait for a later invoice.</p></div>
-${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm" class="inline">${grp ? `<input type="hidden" name="group" value="${esc(grp)}">` : ''}<label class="filter" style="min-width:160px"><span>Invoice date</span><input type="date" name="date" value="${esc(todayLocal())}" required></label><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
+${canCreate ? `<form id="create-form" method="post" action="/invoices/confirm" class="inline">${filterInputs(f)}<label class="filter" style="min-width:160px"><span>Invoice date</span><input type="date" name="date" value="${esc(todayLocal())}" required></label><button class="btn primary" type="submit" id="stamp-selected" data-verb="Create">Create selected</button></form>` : `<button class="btn primary" type="button" disabled title="${esc(why)}">Create selected</button>`}</div>
 ${why && ctx.admin ? `<p class="sub" style="margin:0">${esc(why)}</p>` : ''}
-${groupBar}${grp ? `<p class="sub" style="margin:0">Showing only <b>${esc(groupName || grp)}</b> deals. Invoices created now include only their lines; other deals' lines stay for their own invoices.</p>` : ''}
+${groupBar}${filterNote}
 <div class="split"><div class="wide" style="display:flex;flex-direction:column;gap:16px"><div class="card">
 <div class="selbar"><span>${plan.customers.length} customer${plan.customers.length === 1 ? '' : 's'} to invoice · ${usd(plan.totals.billedCents)}</span>${canCreate ? '<span id="sel-count" aria-live="polite"></span>' : ''}</div>
 <div class="scroll"><table><thead><tr><th class="check">${canCreate ? '<input type="checkbox" id="select-all" aria-label="Select all customers ready to invoice">' : ''}</th><th>Customer</th><th>Deals</th><th>Lines</th><th class="num">Amount</th><th>Status</th></tr></thead>
@@ -639,8 +653,8 @@ export function confirmInvoicesPage(ctx, chosen, date = null) {
 <p class="sub">This creates real invoices in Campfire, attaches each PDF, and marks the source bill lines Billed. It can't be undone from Rekindle; a mistake is fixed by voiding the invoice in Campfire.</p></div>
 ${unapproved ? `<div class="banner demo">Only lines from approved deals are invoiced. ${unapproved === 1 ? 'One customer also has' : `${unapproved} customers also have`} lines from deals not approved yet; those are left off and stay for a later invoice.</div>` : ''}
 ${date && date < todayLocal() ? `<div class="banner demo"><b>Backdated to ${esc(date)}.</b> The invoices post in that period; make sure it isn't locked in Campfire.</div>` : ''}
-<form method="post" action="/invoices/create" class="card">${date ? `<input type="hidden" name="date" value="${esc(date)}">` : ''}${ctx.billingGroupFilter ? `<input type="hidden" name="group" value="${esc(ctx.billingGroupFilter)}">` : ''}<div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-<div class="pad" style="flex-direction:row;gap:8px">${blocked ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} in Campfire</button>`}<a class="btn" href="/invoices${ctx.billingGroupFilter ? `?group=${encodeURIComponent(ctx.billingGroupFilter)}` : ''}">Cancel</a></div></form>`,
+<form method="post" action="/invoices/create" class="card">${date ? `<input type="hidden" name="date" value="${esc(date)}">` : ''}${filterInputs(ctx.invoiceFilter)}<div class="scroll"><table><thead><tr><th>Customer</th><th>Invoice lines</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="pad" style="flex-direction:row;gap:8px">${blocked ? '<span class="no">Fix the problems above first.</span>' : `<button class="btn primary" type="submit" name="confirm" value="yes">Create ${chosen.length} invoice${chosen.length === 1 ? '' : 's'} in Campfire</button>`}<a class="btn" href="/invoices${invoiceFilterQuery(ctx.invoiceFilter) ? `?${invoiceFilterQuery(ctx.invoiceFilter)}` : ''}">Cancel</a></div></form>`,
   });
 }
 
