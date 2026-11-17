@@ -12,8 +12,10 @@ const plan = planBills(bills, config);
 const emp = plan.customers.find((c) => c.customer.name === 'Fund II Employees Only');
 
 // Pull the text drawn on each page out of the PDF's content streams.
-const pageText = (buf) => [...buf.toString('latin1').matchAll(/stream\n([\s\S]*?)\nendstream/g)]
-  .map((m) => inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1'))
+// Page content streams only (not embedded fonts or images).
+const pageText = (buf) => [...buf.toString('latin1').matchAll(/<<([^\n]*)>>\nstream\n([\s\S]*?)\nendstream/g)]
+  .filter((m) => !/\/Length1|\/Subtype/.test(m[1]))
+  .map((m) => inflateSync(Buffer.from(m[2], 'latin1')).toString('latin1'))
   .map((ops) => [...ops.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)]
     .map((x) => x[1].replace(/\\([0-7]{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8))).replace(/\\([()\\])/g, '$1')).join(' | '));
 
@@ -171,4 +173,13 @@ test('PDF draws the entity logo (PNG with transparency, JPEG, palette PNG); unre
   assert.match(s, /\/XObject << \/Im1 \d+ 0 R >>/);
   const none = buildInvoicePdf({ customer: emp, plan, branding: { ...config.invoice, logo: Buffer.from('not an image') }, invoice: { date: '2026-11-13' } });
   assert.doesNotMatch(none.toString('latin1'), /\/Subtype \/Image/);
+});
+
+test('PDF embeds its fonts (subset TrueType), so pdf.js-based viewers can show the text', () => {
+  const buf = buildInvoicePdf({ customer: emp, plan, branding: config.invoice, invoice: { date: '2026-11-13' } });
+  const s = buf.toString('latin1');
+  assert.doesNotMatch(s, /\/Subtype \/Type1/);
+  assert.equal((s.match(/\/Subtype \/TrueType/g) || []).length, 2);
+  assert.equal((s.match(/\/FontFile2 \d+ 0 R/g) || []).length, 2);
+  assert.ok(buf.length < 150_000, `PDF is ${buf.length} bytes`);
 });

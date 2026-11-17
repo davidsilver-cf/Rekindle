@@ -2,6 +2,15 @@
 // rectangles, rotated text. No libraries. Coordinates are in points from the
 // TOP-LEFT of a US Letter page (612 × 792), which is easier to lay out with.
 import { deflateSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
+import { embedFont } from './ttf.js';
+
+// Embedded fonts (Liberation Sans: Helvetica's widths), loaded once.
+let FONT_FILES = null;
+const fontFiles = () => (FONT_FILES ||= {
+  regular: embedFont(fileURLToPath(new URL('../assets/fonts/LiberationSans-Regular.ttf', import.meta.url))),
+  bold: embedFont(fileURLToPath(new URL('../assets/fonts/LiberationSans-Bold.ttf', import.meta.url))),
+});
 
 export const PAGE = { width: 612, height: 792 };
 
@@ -140,8 +149,16 @@ export class Pdf {
     const add = (body) => { objs.push(body); return objs.length; };
     const catalog = add(null);
     const pagesId = add(null);
-    const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
-    const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    // Fonts are embedded (subset), so every viewer can draw the text.
+    const font = (f, name) => {
+      const data = deflateSync(f.file);
+      const file = add({ dict: `<< /Length ${data.length} /Length1 ${f.file.length} /Filter /FlateDecode >>`, stream: data });
+      const desc = add(`<< /Type /FontDescriptor /FontName /${name} /Flags 32 /FontBBox [${f.bbox.join(' ')}] /ItalicAngle 0 /Ascent ${f.ascent} /Descent ${f.descent} /CapHeight ${f.capHeight} /StemV ${name.includes('Bold') ? 120 : 80} /FontFile2 ${file} 0 R >>`);
+      return add(`<< /Type /Font /Subtype /TrueType /BaseFont /${name} /FirstChar 32 /LastChar 255 /Widths [${f.widths.join(' ')}] /Encoding /WinAnsiEncoding /FontDescriptor ${desc} 0 R >>`);
+    };
+    const ff = fontFiles();
+    const f1 = font(ff.regular, 'RKDLAA+LiberationSans');
+    const f2 = font(ff.bold, 'RKDLAB+LiberationSans-Bold');
     const xobjects = this.images.map((img, i) => {
       const smask = img.smask ? add({ dict: `<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} ${img.smask.dict} /Length ${img.smask.data.length} >>`, stream: img.smask.data }) : null;
       const id = add({ dict: `<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} ${img.dict}${smask ? ` /SMask ${smask} 0 R` : ''} /Length ${img.data.length} >>`, stream: img.data });
