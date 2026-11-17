@@ -359,3 +359,30 @@ test('Invoice history links each invoice number to the invoice in Campfire', asy
   const framed = await (await fetch(`${base}/invoices`, { headers: { cookie: admin(), 'sec-fetch-dest': 'iframe' } })).text();
   assert.match(framed, /accounting\/invoices\/\d+" target="_top"/);
 });
+
+test('Rebuild PDF: re-attaches a fresh PDF with the logo to an issued invoice, and refuses unissued runs', async () => {
+  const { rebuildPdf } = await import('../src/invoicing.js');
+  const { readFileSync } = await import('node:fs');
+  const logo = readFileSync(new URL('./fixtures/logo.png', import.meta.url));
+  const cfg = { invoice: { fromName: 'Rekindle' } };
+  const customer = { customer: { name: 'Fund I' }, cents: 10000, sources: [{ lineId: 1, cents: 10000, percent: 100 }] };
+  const plan = { lines: [{ lineId: 1, entityId: 57560, billId: 9, billNumber: 'B1', billDate: '2026-11-01', vendorName: 'V', description: 'Legal', amountCents: 10000, dealsTag: 'Fund I', rechargeCategory: 'Legal' }] };
+  const runs = {
+    1: { id: 1, ref: 'RK-1', status: 'complete', campfire_invoice_id: 25456799, invoice_number: 'INV-0000004', customer_name: 'Fund I', payload: { pdfInput: { customer, plan, date: '2026-11-16', paymentInfo: 'old' } } },
+    2: { id: 2, ref: 'RK-2', status: 'creating', payload: {} },
+  };
+  const saved = {};
+  const store = { getRun: async (id) => runs[id], updateRun: async (id, f) => { saved[id] = f; } };
+  const uploads = [];
+  const api = { uploadFile: async (f) => { uploads.push(f); return true; }, entityLogo: async (id) => (id === 57560 ? logo : null), entityInvoiceMessage: async () => 'Bank: ANY BANK' };
+  const out = await rebuildPdf(1, { store, api, config: cfg });
+  assert.equal(out.ok, true);
+  assert.equal(out.logo, true);
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].objectId, 25456799);
+  assert.match(uploads[0].filename, /^Invoice-INV-0000004-Fund-I-rebuilt-\d{4}-\d{2}-\d{2}\.pdf$/);
+  assert.match(uploads[0].data.toString('latin1'), /\/Subtype \/Image/);
+  assert.ok(saved[1].pdf);
+  assert.deepEqual(await rebuildPdf(2, { store, api, config: cfg }), { ok: false, reason: 'not_issued' });
+  assert.equal(uploads.length, 1);
+});

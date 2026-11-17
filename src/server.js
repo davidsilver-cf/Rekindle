@@ -34,7 +34,7 @@ import { getStore, StoreError, ShareTakenError } from './store.js';
 
 const campfireApi = { createInvoice, uploadFile, getBill, updateBill, getInvoice, updateInvoice, createJournalEntry, entityInvoiceMessage, entityLogo, fetchLogo };
 import { dealGroups, withStatus, canDecide, customerReady } from './approvals.js';
-import { startInvoice, advanceRun, prepareInvoice, retagRun, paymentInfoFor, logoFor, todayET } from './invoicing.js';
+import { startInvoice, advanceRun, prepareInvoice, retagRun, paymentInfoFor, logoFor, rebuildPdf, todayET } from './invoicing.js';
 import { buildInvoicePdf, invoiceFilename } from './invoice-pdf.js';
 
 const STATIC = {
@@ -278,6 +278,9 @@ const SCREENS = {
       flash = { ok: false, text: 'Pick a valid invoice date.' };
     } else if (s.has('nothing')) {
       flash = { ok: false, text: 'Select at least one customer that is ready to invoice.' };
+    } else if (s.has('rebuilt')) {
+      const r = s.get('rebuilt');
+      flash = { ok: r === 'yes', text: { yes: 'New PDF attached to the invoice in Campfire, with the logo. The earlier PDF is still there too.', nologo: "New PDF attached, but without a logo: Rekindle couldn't use the entity's logo (it needs a PNG or JPEG). See entity_logo_failed in Render's Logs.", failed: "The PDF couldn't be attached; see Render's Logs (pdf_rebuild_failed).", no: 'Only issued invoices can have their PDF rebuilt.' }[r] || 'Done.' };
     } else if (s.has('retagged')) {
       flash = { ok: s.get('retagged') === 'yes', text: s.get('retagged') === 'yes' ? 'Tags and departments applied to the invoice lines in Campfire.' : "Tags weren't applied; see the message in Invoice history." };
     } else if (s.has('retried')) {
@@ -725,7 +728,7 @@ async function handle(req, res) {
   }
 
   // ---- Invoicing
-  const invoiceRoute = ['/invoices/confirm', '/invoices/create', '/invoices/retry', '/invoices/resolve', '/invoices/retag'].includes(url.pathname);
+  const invoiceRoute = ['/invoices/confirm', '/invoices/create', '/invoices/retry', '/invoices/resolve', '/invoices/retag', '/invoices/rebuild-pdf'].includes(url.pathname);
   if (req.method === 'POST' && invoiceRoute) {
     if (!user) return redirect(res, '/login');
     if (!isAdmin(user)) return send(res, 403, 'Only admins can create invoices.');
@@ -786,6 +789,17 @@ async function handle(req, res) {
       } catch (err) {
         await store.updateRun(run.id, { error: `Re-apply tags failed: ${err.message}` });
         return redirect(res, `${backTo(form, '/invoices')}?retagged=no`);
+      }
+    }
+
+    if (url.pathname === '/invoices/rebuild-pdf') {
+      try {
+        const out = await rebuildPdf(run.id, { store, api: campfireApi, config, log: console.log });
+        await store.audit(user.email, 'invoice_pdf_rebuilt', { ref: run.ref, ok: out.ok, logo: out.logo ?? null });
+        return redirect(res, `${backTo(form, '/invoices')}?rebuilt=${out.ok ? (out.logo ? 'yes' : 'nologo') : 'no'}`);
+      } catch (err) {
+        console.log(JSON.stringify({ event: 'pdf_rebuild_failed', run: run.id, error: err.message }));
+        return redirect(res, `${backTo(form, '/invoices')}?rebuilt=failed`);
       }
     }
 

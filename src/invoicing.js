@@ -267,6 +267,24 @@ export async function advanceRun(runId, { store, api, config, log = () => {} }) 
   return store.getRun(run.id);
 }
 
+// Rebuild an issued invoice's PDF with today's branding (logo, payment
+// information) and attach it to the Campfire invoice again. Number, date and
+// lines are the invoice's own; nothing in Campfire changes but the new file.
+// Campfire keeps the earlier PDF, so the new one is named "...-rebuilt-<date>".
+export async function rebuildPdf(runId, { store, api, config, log = () => {} }) {
+  const run = await store.getRun(runId);
+  if (!run || !run.campfire_invoice_id || !['pdf_attached', 'complete'].includes(run.status)) return { ok: false, reason: 'not_issued' };
+  const { customer, plan, date } = run.payload.pdfInput;
+  const paymentInfo = (await paymentInfoFor(customer, plan, { config, api, log })) || run.payload.pdfInput.paymentInfo || null;
+  const logo = await logoFor(customer, plan, { config, api, log });
+  const pdf = buildInvoicePdf({ customer, plan, branding: { ...(config.invoice || {}), ...(paymentInfo ? { paymentInfo } : {}), ...(logo ? { logo } : {}) }, invoice: { date, number: run.invoice_number, draft: false } });
+  const filename = invoiceFilename(`${run.invoice_number}-${run.customer_name}`, false).replace(/\.pdf$/i, `-rebuilt-${todayET()}.pdf`);
+  await api.uploadFile({ model: 'invoice', objectId: run.campfire_invoice_id, filename, data: pdf });
+  await store.updateRun(run.id, { pdf });
+  log(JSON.stringify({ event: 'pdf_rebuilt', run: run.id, ref: run.ref, logo: Boolean(logo), paymentInfo: Boolean(paymentInfo) }));
+  return { ok: true, logo: Boolean(logo), filename };
+}
+
 // The Payment Information box: the entity's Invoice Message in Campfire, or
 // config.invoice.paymentInfo when set. Never blocks an invoice.
 export async function paymentInfoFor(customer, plan, { config, api, log = () => {} }) {
