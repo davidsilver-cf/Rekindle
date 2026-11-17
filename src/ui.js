@@ -145,9 +145,9 @@ export function layout({ active, title, body, ctx, scripts = [] }) {
     ['/dashboard', 'dashboard', 'Dashboard', null, false, ''],
     ['/', 'queue', 'Billback Queue', ctx.plan.lines.length, false, 'Pending lines'],
     ['/deals', 'deals', 'Deals &amp; Allocations', needSetup || null, true, `${needSetup} deal${needSetup === 1 ? '' : 's'} need${needSetup === 1 ? 's' : ''} setup`],
+    ['/reclass', 'reclass', 'Reclass', ctx.reclass?.waiting?.length || null, false, 'Expense lines waiting to be reclassed'],
     ['/approvals', 'approvals', 'Approvals', ctx.groups ? ctx.groups.filter((g) => g.status !== 'approved').length || null : null, false, 'Deals waiting for approval'],
     ['/invoices', 'invoices', 'Invoices', ctx.plan.customers.length || null, false, 'Invoices in this run'],
-    ['/reclass', 'reclass', 'Reclass', ctx.reclass?.waiting?.length || null, false, 'Expense lines waiting to be reclassed'],
     ['/settings', 'settings', 'Settings', null, false, ''],
   ];
   const nav = items
