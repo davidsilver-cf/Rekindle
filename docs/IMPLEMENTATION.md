@@ -153,13 +153,13 @@ Add these on the app. Space the **Order** values by 10 so they appear in workflo
 | Kind | Label | Where | URL template | Order |
 | --- | --- | --- | --- | --- |
 | Navigation | Rekindle | Top level, URL blank (a section) | — | — |
-| Navigation | Dashboard | Under Rekindle | `https://<host>/dashboard` | 5 |
-| Navigation | Billback Queue | Under Rekindle | `https://<host>/` | 10 |
-| Navigation | Deals & Allocations | Under Rekindle | `https://<host>/deals` | 20 |
-| Navigation | Approvals | Under Rekindle | `https://<host>/approvals` | 30 |
-| Navigation | Invoices | Under Rekindle | `https://<host>/invoices` | 40 |
-| Navigation | Reclass | Under Rekindle | `https://<host>/reclass` | 45 |
-| Navigation | Settings | Under Rekindle | `https://<host>/settings` | 50 |
+| Navigation | Dashboard | Under Rekindle | `https://<host>/dashboard` | 10 |
+| Navigation | Billback Queue | Under Rekindle | `https://<host>/` | 20 |
+| Navigation | Deals & Allocations | Under Rekindle | `https://<host>/deals` | 30 |
+| Navigation | Reclass | Under Rekindle | `https://<host>/reclass` | 40 |
+| Navigation | Approvals | Under Rekindle | `https://<host>/approvals` | 50 |
+| Navigation | Invoices | Under Rekindle | `https://<host>/invoices` | 60 |
+| Navigation | Settings | Under Rekindle | `https://<host>/settings` | 70 |
 | Panel | Rekindle billback | Bills, Detail page | `https://<host>/campfire/panel/bill/{{record.id}}` | — |
 | Panel | Rekindle | Invoices, Detail page | `https://<host>/campfire/panel/invoice/{{record.id}}` | — |
 | Button | Open in Rekindle | Bills, Detail page header, Menu, Open link | `https://<host>/?bill={{record.number}}` | — |
