@@ -61,7 +61,7 @@ test('queue shows checkboxes only for lines that can be stamped, and only when w
 test('deal setup form: Add owner control, one spare row, clear buttons, script loaded', () => {
   const admin = { ...ctx(), admin: true, approvers: new Map() };
   const page = dealsPage(admin, 'Fund II');
-  assert.match(page, /id="add-owner"/);
+  assert.match(page, /class="btn sm add-owner"/);
   assert.match(page, /<script src="\/static\/deals\.js" defer><\/script>/);
   // Fund II has 3 owners, so the form shows those 3 plus one spare row.
   assert.equal((page.match(/name="owner_\d+_customer"/g) || []).length, 4);
@@ -77,7 +77,7 @@ test('menu shows a red count of deals needing setup, and none when all are set u
     billbackCustomers: [],
   } });
   const page = queuePage({ ...ctx(), config: withNew });
-  assert.match(page, /Deals &amp; Allocations<\/span><span class="pill" title="2 deals need setup" style="background:var\(--bad\);color:var\(--on-accent\)">2/);
+  assert.match(page, /Deals<\/span><span class="pill" title="2 deals need setup" style="background:var\(--bad\);color:var\(--on-accent\)">2/);
   assert.doesNotMatch(queuePage(ctx()), /need(s)? setup"/);
 });
 

@@ -299,3 +299,45 @@ test('Invoices: bill-date range and customer filters narrow the screen, the draf
   // Bad dates are ignored rather than breaking the page.
   assert.equal((await get('/invoices?from=nonsense')).status, 200);
 });
+
+test('Allocations tab: create a saved allocation by $, use it on a deal, change its split, delete only when unused', async () => {
+  const page = await (await get('/allocations')).text();
+  assert.match(page, /<h1 class="title">Allocations<\/h1>/);
+  assert.match(page, /New allocation/);
+  // Bad: no name, and $ on only one owner.
+  const bad = await post('/allocations/save', { name: '', owner_0_customer: '1027955', owner_0_amount: '600', owner_1_customer: '1027954', owner_1_percent: '40' });
+  assert.equal(bad.status, 400);
+  const badText = await bad.text();
+  assert.match(badText, /Give the allocation a name/);
+  assert.match(badText, /\$ amount for every owner/);
+  // Create: $60M / $40M → 60% / 40%.
+  const made = await post('/allocations/save', { name: 'Fund II Investors', owner_0_customer: '1027955', owner_0_amount: '60,000,000', owner_1_customer: '1027954', owner_1_amount: '$40,000,000' });
+  assert.equal(made.status, 303);
+  const loc = made.headers.get('location');
+  assert.match(loc, /^\/allocations\?a=\d+&created=1$/);
+  const id = loc.match(/a=(\d+)/)[1];
+  const shown = await (await get(`/allocations?a=${id}`)).text();
+  assert.match(shown, /Fund II Main <b>60%<\/b> <span class="muted">\(\$60,000,000\)<\/span>/);
+  assert.match(shown, /Not used by any deal/);
+  // Duplicate names are refused.
+  assert.match(await (await post('/allocations/save', { name: 'fund ii investors', owner_0_customer: '1027955', owner_0_percent: '100' })).text(), /already an allocation called/);
+  // Use it on a deal.
+  const set = await post('/deals/setup', { deal: '1028616', billingType: 'Allocation', allocation: id });
+  assert.equal(set.status, 303);
+  const deal = await (await get('/deals?deal=Fund%20II%20-%20Employees%20Only')).text();
+  assert.match(deal, /Saved allocation/);
+  assert.match(deal, /href="\/allocations\?a=\d+">Fund II Investors<\/a>/);
+  assert.doesNotMatch(deal, /action="\/deals\/change-split"/);
+  // Change its split from a date, by $.
+  const ch = await post('/allocations/change-split', { id, date: '2026-12-01', new_0_customer: '1027955', new_0_amount: '50', new_1_customer: '1027954', new_1_amount: '50' });
+  assert.equal(ch.status, 303);
+  const after = await (await get(`/allocations?a=${id}`)).text();
+  assert.match(after, /From 2026-12-01 onwards/);
+  assert.match(after, /Fund II Main <b>50%<\/b>/);
+  // In use: no delete.
+  assert.doesNotMatch(after, /Delete allocation/);
+  assert.equal((await post('/allocations/delete', { id })).status, 400);
+  // Back to its own split, then it can go.
+  await post('/deals/setup', { deal: '1028616', billingType: 'Allocation', owner_0_customer: '1027956', owner_0_percent: '100' });
+  assert.equal((await post('/allocations/delete', { id })).headers.get('location'), '/allocations?deleted=1');
+});

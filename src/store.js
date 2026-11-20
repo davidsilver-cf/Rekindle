@@ -14,19 +14,27 @@ FROM approvals ORDER BY deals_tag_id, created_at DESC, id DESC`,
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
   audit: 'INSERT INTO audit_log (actor_email, action, detail) VALUES ($1, $2, $3)',
   recentAudit: 'SELECT at, actor_email, action, detail FROM audit_log ORDER BY at DESC, id DESC LIMIT $1',
-  setups: 'SELECT deals_tag_id, billing_type, customer FROM deal_settings WHERE billing_type IS NOT NULL',
+  setups: 'SELECT deals_tag_id, billing_type, customer, allocation_id FROM deal_settings WHERE billing_type IS NOT NULL',
   billingGroups: 'SELECT deals_tag_id, billing_group FROM deal_settings WHERE billing_group IS NOT NULL',
   setBillingGroup: `INSERT INTO deal_settings (deals_tag_id, deals_tag_name, billing_group, updated_by, updated_at) VALUES ($1, $2, $3, $4, now())
 ON CONFLICT (deals_tag_id) DO UPDATE SET deals_tag_name = EXCLUDED.deals_tag_name, billing_group = EXCLUDED.billing_group, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-  setSetup: `INSERT INTO deal_settings (deals_tag_id, deals_tag_name, billing_type, customer, updated_by, updated_at)
-VALUES ($1, $2, $3, $4, $5, now())
+  setSetup: `INSERT INTO deal_settings (deals_tag_id, deals_tag_name, billing_type, customer, allocation_id, updated_by, updated_at)
+VALUES ($1, $2, $3, $4, $6, $5, now())
 ON CONFLICT (deals_tag_id) DO UPDATE SET deals_tag_name = EXCLUDED.deals_tag_name, billing_type = EXCLUDED.billing_type,
-  customer = EXCLUDED.customer, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-  owners: `SELECT deals_tag_id, customer, percent, to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date
+  customer = EXCLUDED.customer, allocation_id = EXCLUDED.allocation_id, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+  owners: `SELECT deals_tag_id, customer, amount, percent, to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date
 FROM allocation_owners ORDER BY deals_tag_id, start_date NULLS FIRST, percent DESC, id`,
   deleteOwners: 'DELETE FROM allocation_owners WHERE deals_tag_id = $1',
-  insertOwner: `INSERT INTO allocation_owners (deals_tag_id, customer, percent, start_date, end_date, updated_by)
-VALUES ($1, $2, $3, $4, $5, $6)`,
+  insertOwner: `INSERT INTO allocation_owners (deals_tag_id, customer, percent, start_date, end_date, updated_by, amount)
+VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+  savedAllocations: 'SELECT id, name FROM saved_allocations ORDER BY lower(name)',
+  savedAllocationOwners: `SELECT allocation_id, customer, amount, percent, to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date
+FROM saved_allocation_owners ORDER BY allocation_id, start_date NULLS FIRST, percent DESC, id`,
+  insertSavedAllocation: 'INSERT INTO saved_allocations (name, created_by, updated_by) VALUES ($1, $2, $2) RETURNING id',
+  renameSavedAllocation: 'UPDATE saved_allocations SET name = $2, updated_by = $3, updated_at = now() WHERE id = $1',
+  deleteSavedAllocationOwners: 'DELETE FROM saved_allocation_owners WHERE allocation_id = $1',
+  insertSavedAllocationOwner: `INSERT INTO saved_allocation_owners (allocation_id, customer, amount, percent, start_date, end_date) VALUES ($1, $2, $3, $4, $5, $6)`,
+  deleteSavedAllocation: 'DELETE FROM saved_allocations WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM deal_settings WHERE allocation_id = $1 AND billing_type = \'Allocation\')',
   shares: 'SELECT line_id, customer_tag_id FROM invoice_items',
   insertRun: `INSERT INTO invoice_runs (ref, customer_tag_id, customer_name, client_id, entity_id, total_cents, invoice_date, due_date, status, payload, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'creating', $9, $10) RETURNING id`,
@@ -87,6 +95,8 @@ export function memoryStore() {
   const log = [];
   const setups = new Map();
   const owners = [];
+  const savedAllocs = [];
+  let allocSeq = 0;
   const runs = [];
   const items = [];
   let seq = 0;
@@ -162,10 +172,30 @@ export function memoryStore() {
     },
     async getOwners() { return owners.map((o) => ({ ...o })); },
     async saveDealSetup(dealsTagId, name, setup, ownerRows, actor) {
-      setups.set(dealsTagId, { billingType: setup.billingType, customer: setup.customer });
+      setups.set(dealsTagId, { billingType: setup.billingType, customer: setup.customer, allocationId: setup.allocationId || null });
       for (let i = owners.length - 1; i >= 0; i--) if (owners[i].dealsTagId === dealsTagId) owners.splice(i, 1);
       for (const o of ownerRows) owners.push({ dealsTagId, ...o });
       log.push({ at: new Date(), actor_email: actor, action: 'set_deal_setup', detail: { dealsTagId, name, ...setup, owners: ownerRows } });
+    },
+    async getSavedAllocations() { return savedAllocs.map((a) => ({ id: a.id, name: a.name, owners: a.owners.map((o) => ({ ...o })) })); },
+    async saveAllocation({ id = null, name, owners: rows }, actor) {
+      const clash = savedAllocs.find((a) => a.name.toLowerCase() === name.toLowerCase() && a.id !== Number(id));
+      if (clash) throw new Error(`There's already an allocation called "${clash.name}".`);
+      let a = id ? savedAllocs.find((x) => x.id === Number(id)) : null;
+      if (id && !a) throw new Error('That allocation no longer exists.');
+      if (!a) { a = { id: ++allocSeq, name, owners: [] }; savedAllocs.push(a); }
+      a.name = name;
+      a.owners = rows.map((o) => ({ ...o }));
+      log.push({ at: new Date(), actor_email: actor, action: id ? 'update_allocation' : 'create_allocation', detail: { id: a.id, name, owners: rows } });
+      return a.id;
+    },
+    async deleteAllocation(id, actor) {
+      const inUse = [...setups.values()].some((v) => v.billingType === 'Allocation' && Number(v.allocationId) === Number(id));
+      const i = savedAllocs.findIndex((a) => a.id === Number(id));
+      if (inUse || i < 0) return false;
+      const [a] = savedAllocs.splice(i, 1);
+      log.push({ at: new Date(), actor_email: actor, action: 'delete_allocation', detail: { id: a.id, name: a.name } });
+      return true;
     },
     async invoicedShares() { return new Set(items.map((i) => `${i.line_id}:${i.customer_tag_id}`)); },
     async reserveInvoice(run, runItems) {
@@ -298,20 +328,20 @@ export async function postgresStore(connectionString) {
     },
     async getSetups() {
       const { rows } = await q(SQL.setups);
-      return new Map(rows.map((r) => [Number(r.deals_tag_id), { billingType: r.billing_type, customer: r.customer }]));
+      return new Map(rows.map((r) => [Number(r.deals_tag_id), { billingType: r.billing_type, customer: r.customer, allocationId: r.allocation_id ? Number(r.allocation_id) : null }]));
     },
     async getOwners() {
       const { rows } = await q(SQL.owners);
-      return rows.map((r) => ({ dealsTagId: Number(r.deals_tag_id), customer: r.customer, percent: Number(r.percent), start: r.start_date, end: r.end_date }));
+      return rows.map((r) => ({ dealsTagId: Number(r.deals_tag_id), customer: r.customer, amount: r.amount === null ? null : Number(r.amount), percent: Number(r.percent), start: r.start_date, end: r.end_date }));
     },
     async saveDealSetup(dealsTagId, name, setup, ownerRows, actor) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        await client.query(SQL.setSetup, [dealsTagId, name, setup.billingType, setup.customer ? JSON.stringify(setup.customer) : null, actor]);
+        await client.query(SQL.setSetup, [dealsTagId, name, setup.billingType, setup.customer ? JSON.stringify(setup.customer) : null, actor, setup.allocationId || null]);
         await client.query(SQL.deleteOwners, [dealsTagId]);
         for (const o of ownerRows) {
-          await client.query(SQL.insertOwner, [dealsTagId, JSON.stringify(o.customer), o.percent, o.start, o.end, actor]);
+          await client.query(SQL.insertOwner, [dealsTagId, JSON.stringify(o.customer), o.percent, o.start, o.end, actor, o.amount ?? null]);
         }
         await client.query(SQL.audit, [actor, 'set_deal_setup', JSON.stringify({ dealsTagId, name, ...setup, owners: ownerRows })]);
         await client.query('COMMIT');
@@ -321,6 +351,42 @@ export async function postgresStore(connectionString) {
       } finally {
         client.release();
       }
+    },
+    async getSavedAllocations() {
+      const [{ rows: list }, { rows: owners }] = await Promise.all([q(SQL.savedAllocations), q(SQL.savedAllocationOwners)]);
+      return list.map((a) => ({
+        id: Number(a.id), name: a.name,
+        owners: owners.filter((o) => Number(o.allocation_id) === Number(a.id)).map((o) => ({ customer: o.customer, amount: o.amount === null ? null : Number(o.amount), percent: Number(o.percent), start: o.start_date, end: o.end_date })),
+      }));
+    },
+    async saveAllocation({ id = null, name, owners: rows }, actor) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        let allocId = id ? Number(id) : null;
+        if (allocId) {
+          const r = await client.query(SQL.renameSavedAllocation, [allocId, name, actor]);
+          if (!r.rowCount) throw new Error('That allocation no longer exists.');
+        } else {
+          allocId = Number((await client.query(SQL.insertSavedAllocation, [name, actor])).rows[0].id);
+        }
+        await client.query(SQL.deleteSavedAllocationOwners, [allocId]);
+        for (const o of rows) await client.query(SQL.insertSavedAllocationOwner, [allocId, JSON.stringify(o.customer), o.amount ?? null, o.percent, o.start, o.end]);
+        await client.query(SQL.audit, [actor, id ? 'update_allocation' : 'create_allocation', JSON.stringify({ id: allocId, name, owners: rows })]);
+        await client.query('COMMIT');
+        return allocId;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        if (err.code === '23505') throw new Error(`There's already an allocation called "${name}".`);
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+    async deleteAllocation(id, actor) {
+      const r = await q(SQL.deleteSavedAllocation, [Number(id)]);
+      if (r.rowCount) await q(SQL.audit, [actor, 'delete_allocation', JSON.stringify({ id: Number(id) })]);
+      return r.rowCount > 0;
     },
     async invoicedShares() {
       const { rows } = await q(SQL.shares);

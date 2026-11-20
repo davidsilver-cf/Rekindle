@@ -1,3 +1,4 @@
+import { fmtPct } from './format.js';
 // Rekindle invoice PDF: page 1 is the invoice (one line per recharge
 // category), followed by supporting detail listing every source bill line,
 // its share and the amount billed. Drafts carry a DRAFT watermark.
@@ -234,7 +235,7 @@ export function buildInvoicePdf(args) {
   const sourceRow = (s) => {
     const l = s.line || {};
     const descLines = wrap(l.description || '', 128, 8.5).slice(0, 2);
-    const how = s.percent < 100 ? `${s.percent}% allocation` : 'direct';
+    const how = s.percent < 100 ? `${fmtPct(s.percent)}% allocation` : 'direct';
     const dealLine = fit(d.multiDeal ? how : `${l.dealsTag || ''} · ${how}`, 128, 7.5);
     const h = 12 + descLines.length * 11 + 11 + 4;
     ensure(h);
@@ -246,7 +247,7 @@ export function buildInvoicePdf(args) {
     descLines.forEach((t, i) => p.text(M + 216, base + i * 11, t, { size: 8.5 }));
     p.text(M + 216, base + descLines.length * 11, dealLine, { size: 7.5, color: QUIET });
     p.text(M + 402, base, usd(l.amountCents || 0), { size: 8.5, align: 'right' });
-    p.text(M + 438, base, `${s.percent}%`, { size: 8.5, align: 'right' });
+    p.text(M + 438, base, `${fmtPct(s.percent)}%`, { size: 8.5, align: 'right' });
     p.text(RIGHT - 6, base, usd(s.cents), { size: 8.5, align: 'right' });
     top += h;
     p.line(M + 6, top, RIGHT, top, { color: RULE, width: 0.5 });

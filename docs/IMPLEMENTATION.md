@@ -155,11 +155,12 @@ Add these on the app. Space the **Order** values by 10 so they appear in workflo
 | Navigation | Rekindle | Top level, URL blank (a section) | — | — |
 | Navigation | Dashboard | Under Rekindle | `https://<host>/dashboard` | 10 |
 | Navigation | Billback Queue | Under Rekindle | `https://<host>/` | 20 |
-| Navigation | Deals & Allocations | Under Rekindle | `https://<host>/deals` | 30 |
-| Navigation | Reclass | Under Rekindle | `https://<host>/reclass` | 40 |
-| Navigation | Approvals | Under Rekindle | `https://<host>/approvals` | 50 |
-| Navigation | Invoices | Under Rekindle | `https://<host>/invoices` | 60 |
-| Navigation | Settings | Under Rekindle | `https://<host>/settings` | 70 |
+| Navigation | Deals | Under Rekindle | `https://<host>/deals` | 30 |
+| Navigation | Allocations | Under Rekindle | `https://<host>/allocations` | 40 |
+| Navigation | Reclass | Under Rekindle | `https://<host>/reclass` | 50 |
+| Navigation | Approvals | Under Rekindle | `https://<host>/approvals` | 60 |
+| Navigation | Invoices | Under Rekindle | `https://<host>/invoices` | 70 |
+| Navigation | Settings | Under Rekindle | `https://<host>/settings` | 80 |
 | Panel | Rekindle billback | Bills, Detail page | `https://<host>/campfire/panel/bill/{{record.id}}` | — |
 | Panel | Rekindle | Invoices, Detail page | `https://<host>/campfire/panel/invoice/{{record.id}}` | — |
 | Button | Open in Rekindle | Bills, Detail page header, Menu, Open link | `https://<host>/?bill={{record.number}}` | — |
@@ -175,9 +176,13 @@ In Campfire, **Settings → Developer → Webhooks → New Webhook**: URL `https
 
 Run one real bill end to end with writing switched on before handing over; it catches tag, permission and posting problems while you're still on the project.
 
-**New deals.** On **Deals & Allocations**, admins press **New deal**: the deal name, billing type, who it bills, and the approver. For who it bills, pick an existing Billback Customer or **New company**, which creates the Campfire customer and its linked Billback Customer tag. Rekindle creates the Deals tag in Campfire and sets the deal up in one step; an Allocation deal then needs its owners. Records that already exist are found by name and reused, so trying again never duplicates. Deals tags created directly in Campfire still work: they show **Needs setup**.
+**New deals.** On **Deals**, admins press **New deal**: the deal name, billing type, who it bills, and the approver. For who it bills, pick an existing Billback Customer or **New company**, which creates the Campfire customer and its linked Billback Customer tag. Rekindle creates the Deals tag in Campfire and sets the deal up in one step; an Allocation deal then needs its owners. Records that already exist are found by name and reused, so trying again never duplicates. Deals tags created directly in Campfire still work: they show **Needs setup**.
 
-**Set up each deal.** Open **Deals & Allocations**. Every Deals tag in Campfire is listed; new ones show **Needs setup** and their lines are held as exceptions until set up. For each deal choose the billing type, then the billback customer (Deal or Fund), or the owners with % and start dates (Allocation; owners in force must total 100% on every date). Set the deal's **approver**.
+**Set up each deal.** Open **Deals**. Every Deals tag in Campfire is listed; new ones show **Needs setup** and their lines are held as exceptions until set up. For each deal choose the billing type, then the billback customer (Deal or Fund), or for an Allocation deal its **Allocation**: **Own split** (owners entered on the deal) or a **saved allocation** from the Allocations tab. Set the deal's **approver**.
+
+**Owners by $ amount or %.** The owners table has a **$ amount** column and a **Share %** column. Enter a $ amount for every owner (for example each investor's dollars in the deal) and Rekindle works out each share %: the owner's amount over the total of the owners in force on the same date. The % fills in as you type and is read-only. Or leave $ blank and type the % (owners in force must total 100% on every date). Owners in force together are all $ or all %; an older period can be % and a newer one $. Rekindle saves both the $ and the worked-out %, shows % to 2 decimals and splits each line with the exact figure, so the shares always add up to the line.
+
+**Saved allocations (the Allocations tab).** When several deals split across the same owners, set the split up once: on **Allocations**, press **New allocation**, give it a name (for example "Fund II Investors") and its owners by $ or %. Then on each Allocation deal choose it in **Allocation**. The deal page shows which saved allocation it uses; its owners and splits are changed on the Allocations tab, and every deal using it follows. **Change the split** on an allocation works as on a deal (new owners from a date; earlier bills keep the old split). An allocation can be deleted only when no deal uses it.
 
 **Billing group.** Each deal can be given a **Billing group** (the Campfire tag group *Billing Group*, e.g. Deal or Fund) from the dropdown at the top of its page; admins only. Create the tag group and its tags in Campfire first and add its ID to `config/rekindle.json` (`tagGroups.billingGroup`). The Invoices screen filters by it.
 
@@ -213,7 +218,8 @@ The finance team's routine is: clear exceptions on the Billback Queue, get deals
 | --- | --- | --- |
 | Dashboard | The firm at a glance: **Unbilled** (with line count and oldest age), **Unbilled over 90 days**, **Invoiced**, **Collected** and **Outstanding** (with the past-due part); unbilled by age (0–30, 31–60, 61–90, over 90 days since the bill date); where unbilled stands (needs setup, waiting for approval, approved, awaiting reclass); invoiced vs collected by deal; tables **By deal** and **By billback customer**. Pick a deal (dropdown, or click it) for its unbilled lines, oldest first, and its invoices with status and amount collected | Spot old unbilled amounts and past-due invoices; filter any table and **Export CSV**; open an invoice in Campfire from a deal's page |
 | Billback Queue | Every Pending line on 13190: deal, billing type, who it bills, status | Fix exceptions; select lines and **Stamp** any the webhook missed; **Review for approval** |
-| Deals & Allocations | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; change owners and %; set approvers (admins) |
+| Deals | Every Deals tag and its setup; a red count of deals needing setup | Set up new deals; pick each Allocation deal's own split ($ or %) or saved allocation; set approvers (admins) |
+| Allocations | Saved allocations: owners with $ and %, splits over time, the deals using each | Create one, change its split from a date, edit or delete an unused one (admins) |
 | Approvals | The run grouped by deal, with each deal's total and status | Approvers **Approve** or **Send back** with a note; click a line count to see the lines |
 | Invoices | What each billback customer owes, and its approval status: **Approved · ready**, **Approved lines ready** (some deals still pending; the amount waiting is shown and each deal links to Approvals) or **Waiting for approval** (nothing approved yet, can't be invoiced). Click a customer for the **preview**: every line, with lines from unapproved deals marked **Pending approval**; **Total due** counts only approved lines, and **Amount pending approval** shows the rest | Filter by **Billing group** to invoice one group's deals at a time; download a draft PDF; tick customers, set the **Invoice date** (today by default; can be backdated) and **Create selected**; Invoice history, Retry, Re-apply tags |
 | Reclass | Expense lines waiting to move off 13190, and Reclass history | Tick lines, pick the JE date, **Reclass selected**, confirm; Retry or resolve a run that didn't finish |
@@ -238,7 +244,9 @@ Inside Campfire's own records:
 | Exception | Fix |
 | --- | --- |
 | No Deals tag on line | Add the Deals tag on the bill line in Campfire |
-| "X" needs setup on the Deals screen | Set up the deal on Deals & Allocations |
+| "X" needs setup on the Deals screen | Set up the deal on Deals |
+| Deal setup: **Enter a $ amount for every owner…** | Some owners in force on the same date have $ and others only %. Give every one a $ amount, or clear the $ column to type % |
+| Can't delete a saved allocation | A deal still uses it. Switch those deals to Own split or another allocation first (the allocation's page lists them) |
 | Owners total N%, not 100% | Correct the deal's owners or dates so they total 100% |
 | Not linked to a Campfire customer (Invoices) | Link the Billback Customer tag to its customer in Campfire |
 

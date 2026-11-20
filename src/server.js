@@ -24,8 +24,8 @@ import { planBills, planLine, customersFor } from './engine.js';
 import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
-import { validateSetup } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage, reclassPage, confirmReclassPage, newDealPage } from './ui.js';
+import { validateSetup, validateOwners } from './setup.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage, reclassPage, confirmReclassPage, newDealPage, allocationsPage } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail, LINK_COOKIE, makeLinkToken, readLinkToken, isUnlinkedCampfireUser, setSettingsAdmins, envAdmins } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
@@ -254,6 +254,11 @@ const SCREENS = {
   '/deals': (ctx, url) => dealsPage(ctx, url.searchParams.get('deal'), url.searchParams.has('created')
     ? { ok: true, text: url.searchParams.has('owners') ? 'Deal created in Campfire. Add its owners and shares below, then Save setup.' : 'Deal created in Campfire and set up. AP can code bills to it now.' }
     : url.searchParams.has('saved') ? { ok: true, text: 'Deal setup saved. The queue and approvals use it right away.' } : null),
+  '/allocations': (ctx, url) => {
+    const s = url.searchParams;
+    const text = s.has('created') ? 'Allocation created. Pick it in each Allocation deal\'s Setup.' : s.has('saved') ? 'Allocation saved. Every deal using it follows from now on.' : s.has('deleted') ? 'Allocation deleted.' : null;
+    return allocationsPage(ctx, { selected: s.get('a'), creating: s.has('new'), flash: text ? { ok: true, text } : null });
+  },
   '/approvals': (ctx, url) => {
     const r = url.searchParams.get('result');
     const flash = {
@@ -289,6 +294,31 @@ const SCREENS = {
     return invoicesPage(invoiceView(ctx, invoiceFilter(s)), s.get('customer'), flash);
   },
 };
+
+// Change the split from a date: the existing owners end the day before (rows
+// starting on or after it are replaced) and the new owners start that day.
+// Returns owner rows for validateOwners/validateSetup, or null if none given.
+function newSplitRows(form, date, existing) {
+  const fresh = [];
+  for (let i = 0; i < 20; i++) {
+    const c = form.get(`new_${i}_customer`);
+    const amount = form.get(`new_${i}_amount`) || '';
+    const pct = form.get(`new_${i}_percent`);
+    if (!c && !pct && !amount) continue;
+    fresh.push({ customerTagId: c, amount, percent: pct, start: date, end: '' });
+  }
+  if (!fresh.length) return null;
+  const dayBefore = new Date(Date.parse(date) - 864e5).toISOString().slice(0, 10);
+  const kept = [];
+  for (const o of existing) {
+    if (o.start && o.start >= date) continue; // replaced by the new split
+    const end = !o.end || o.end >= date ? dayBefore : o.end;
+    // Old rows keep their shares, as $ or % as they were entered.
+    const amount = o.amount === null || o.amount === undefined ? '' : String(o.amount);
+    kept.push({ customerTagId: String(o.customer?.billbackTagId ?? ''), amount, percent: String(o.percent), start: o.start || '', end });
+  }
+  return [...kept, ...fresh];
+}
 
 // The Invoices screen's filters, from a query string or a posted form:
 // billing group ("none" = deals without one), bill dates from/to, customer.
@@ -977,6 +1007,55 @@ async function handle(req, res) {
     }
   }
 
+  // ---- Saved allocations (Allocations tab)
+  if (req.method === 'POST' && ['/allocations/save', '/allocations/change-split', '/allocations/delete'].includes(url.pathname)) {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can change allocations.');
+    const form = new URLSearchParams(await readBody(req));
+    const config = await loadConfig();
+    const store = await getStore();
+    const page = async (opts, status = 400) => html(res, allocationsPage({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/allocations' }, opts), status);
+    const id = form.get('id') ? Number(form.get('id')) : null;
+    const current = id ? config.savedAllocations.find((a) => a.id === id) : null;
+    if (id && !current) return redirect(res, '/allocations');
+
+    if (url.pathname === '/allocations/delete') {
+      if (current.deals.length) return page({ selected: id, flash: { ok: false, text: `Still used by ${current.deals.join(', ')}; change those deals first.` } });
+      await store.deleteAllocation(id, user.email);
+      return redirect(res, '/allocations?deleted=1');
+    }
+
+    if (url.pathname === '/allocations/change-split') {
+      const date = form.get('date') || '';
+      const fail = (text) => page({ selected: id, flash: { ok: false, split: true, text } });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail('Pick the date the new split starts.');
+      const split = newSplitRows(form, date, current.owners);
+      if (!split) return fail('Add at least one new owner.');
+      const v = validateOwners(split, config.billbackCustomers, 'An allocation');
+      if (v.errors.length) return fail(v.errors.join(' '));
+      await store.saveAllocation({ id, name: current.name, owners: v.rows }, user.email);
+      return redirect(res, `/allocations?a=${id}&saved=1`);
+    }
+
+    // Create or edit: name and owners.
+    const name = String(form.get('name') || '').trim().replace(/\s+/g, ' ');
+    const owners = [];
+    for (let i = 0; i < 20; i++) {
+      if (!form.has(`owner_${i}_customer`)) continue;
+      owners.push({ customerTagId: form.get(`owner_${i}_customer`), amount: form.get(`owner_${i}_amount`) || '', percent: form.get(`owner_${i}_percent`), start: form.get(`owner_${i}_start`), end: form.get(`owner_${i}_end`) });
+    }
+    const v = validateOwners(owners, config.billbackCustomers, 'An allocation');
+    const errors = [...(name ? [] : ['Give the allocation a name.']), ...(name.length > 120 ? ['Names can be at most 120 characters.'] : []), ...v.errors];
+    const draft = { name, owners };
+    if (errors.length) return page({ selected: id, creating: !id, draft, flash: { ok: false, text: errors.join(' ') } });
+    try {
+      const savedId = await store.saveAllocation({ id, name, owners: v.rows }, user.email);
+      return redirect(res, `/allocations?a=${savedId}&${id ? 'saved' : 'created'}=1`);
+    } catch (err) {
+      return page({ selected: id, creating: !id, draft, flash: { ok: false, text: err.message } });
+    }
+  }
+
   if (req.method === 'POST' && url.pathname === '/deals/setup') {
     if (!user) return redirect(res, '/login');
     if (!isAdmin(user)) return send(res, 403, 'Only admins can change deal setup.');
@@ -988,13 +1067,14 @@ async function handle(req, res) {
     for (let i = 0; i < 20; i++) {
       if (!form.has(`owner_${i}_customer`)) continue;
       owners.push({
-        customerTagId: form.get(`owner_${i}_customer`), percent: form.get(`owner_${i}_percent`),
+        customerTagId: form.get(`owner_${i}_customer`), amount: form.get(`owner_${i}_amount`) || '', percent: form.get(`owner_${i}_percent`),
         start: form.get(`owner_${i}_start`), end: form.get(`owner_${i}_end`),
       });
     }
-    const result = validateSetup({ billingType: form.get('billingType'), customerTagId: form.get('customer'), owners }, config.billbackCustomers);
+    const allocationId = form.get('allocation') || null;
+    const result = validateSetup({ billingType: form.get('billingType'), customerTagId: form.get('customer'), owners, allocationId }, config.billbackCustomers, config.savedAllocations);
     if (result.errors.length) {
-      return html(res, dealsPage(await screenContext(user), deal.dealsTag, { ok: false, text: result.errors.join(' ') }, { billingType: form.get('billingType'), customerTagId: form.get('customer'), owners }), 400);
+      return html(res, dealsPage(await screenContext(user), deal.dealsTag, { ok: false, text: result.errors.join(' ') }, { billingType: form.get('billingType'), customerTagId: form.get('customer'), owners, allocationId }), 400);
     }
     const store = await getStore();
     await store.saveDealSetup(deal.dealsTagId, deal.dealsTag, result.setup, result.owners, user.email);
@@ -1012,22 +1092,9 @@ async function handle(req, res) {
     const date = form.get('date') || '';
     const fail = async (text) => html(res, dealsPage({ ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/deals' }, deal.dealsTag, { ok: false, split: true, text }), 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail('Pick the date the new split starts.');
-    const fresh = [];
-    for (let i = 0; i < 20; i++) {
-      const c = form.get(`new_${i}_customer`);
-      const pct = form.get(`new_${i}_percent`);
-      if (!c && !pct) continue;
-      fresh.push({ customerTagId: c, percent: pct, start: date, end: '' });
-    }
-    if (!fresh.length) return fail('Add at least one new owner.');
-    const dayBefore = new Date(Date.parse(date) - 864e5).toISOString().slice(0, 10);
-    const kept = [];
-    for (const o of config.allocations.filter((a) => a.dealsTagId === deal.dealsTagId)) {
-      if (o.start && o.start >= date) continue; // replaced by the new split
-      const end = !o.end || o.end >= date ? dayBefore : o.end;
-      kept.push({ customerTagId: String(o.customer?.billbackTagId ?? ''), percent: String(o.percent), start: o.start || '', end });
-    }
-    const result = validateSetup({ billingType: 'Allocation', owners: [...kept, ...fresh] }, config.billbackCustomers);
+    const split = newSplitRows(form, date, config.allocations.filter((a) => a.dealsTagId === deal.dealsTagId));
+    if (!split) return fail('Add at least one new owner.');
+    const result = validateSetup({ billingType: 'Allocation', owners: split }, config.billbackCustomers);
     if (result.errors.length) return fail(result.errors.join(' '));
     const store = await getStore();
     await store.saveDealSetup(deal.dealsTagId, deal.dealsTag, result.setup, result.owners, user.email);

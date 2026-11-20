@@ -28,7 +28,7 @@ export async function loadConfig() {
     ]);
     tags = { deals, billbackCustomers, billingGroups };
   }
-  const [setups, owners, savedLinks, groups] = await Promise.all([store.getSetups(), store.getOwners(), store.getCustomerLinks(), store.getBillingGroups()]);
+  const [setups, owners, savedLinks, groups, saved] = await Promise.all([store.getSetups(), store.getOwners(), store.getCustomerLinks(), store.getBillingGroups(), store.getSavedAllocations()]);
   // Billback Customer tags with no customer attached: match a Campfire
   // customer with exactly the same name (case and spacing ignored).
   const links = new Map(savedLinks);
@@ -42,5 +42,5 @@ export async function loadConfig() {
       if (same.length === 1) links.set(Number(t.id), Number(same[0].id));
     }
   }
-  return effectiveConfig(config, { tags, setups, owners, links, groups });
+  return effectiveConfig(config, { tags, setups, owners, links, groups, saved });
 }

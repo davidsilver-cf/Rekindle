@@ -177,3 +177,33 @@ CREATE TABLE IF NOT EXISTS billback_customer_links (
 
 -- Each deal's Billing Group tag (Campfire tag group "Billing Group").
 ALTER TABLE deal_settings ADD COLUMN IF NOT EXISTS billing_group jsonb;
+
+-- Allocations by $ amount: the amount each owner was entered with (the %
+-- is worked out from the amounts and kept beside them), with enough
+-- decimals that worked-out shares still total 100%.
+ALTER TABLE allocation_owners ADD COLUMN IF NOT EXISTS amount numeric(18,2);
+ALTER TABLE allocation_owners ALTER COLUMN percent TYPE numeric(14,10);
+
+-- Saved allocations: a named split reused by several Allocation deals.
+-- A deal using one has deal_settings.allocation_id set and no owners of its own.
+CREATE TABLE IF NOT EXISTS saved_allocations (
+  id          bigserial PRIMARY KEY,
+  name        text NOT NULL,
+  created_by  text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS saved_allocations_name_idx ON saved_allocations (lower(name));
+CREATE TABLE IF NOT EXISTS saved_allocation_owners (
+  id            bigserial PRIMARY KEY,
+  allocation_id bigint NOT NULL REFERENCES saved_allocations (id) ON DELETE CASCADE,
+  customer      jsonb NOT NULL,
+  amount        numeric(18,2),
+  percent       numeric(14,10) NOT NULL CHECK (percent > 0 AND percent <= 100),
+  start_date    date,
+  end_date      date,
+  CHECK (start_date IS NULL OR end_date IS NULL OR start_date <= end_date)
+);
+CREATE INDEX IF NOT EXISTS saved_allocation_owners_idx ON saved_allocation_owners (allocation_id);
+ALTER TABLE deal_settings ADD COLUMN IF NOT EXISTS allocation_id bigint;

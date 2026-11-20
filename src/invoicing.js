@@ -1,3 +1,4 @@
+import { fmtPct } from './format.js';
 // Creating an invoice in Campfire, as a run of recorded steps:
 //
 //   1. reserve   Save the run and its bill-line shares in Rekindle's database.
@@ -63,7 +64,7 @@ export function prepareInvoice({ customer, plan, config, date = todayET(), ref, 
     for (const c of g.categories) {
       for (const src of c.sources) {
         const l = src.line;
-        const share = src.percent < 100 ? `, ${src.percent}% share of ${(l.amountCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}` : '';
+        const share = src.percent < 100 ? `, ${fmtPct(src.percent)}% share of ${(l.amountCents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}` : '';
         const amount = src.cents / 100;
         lines.push({
           product,
