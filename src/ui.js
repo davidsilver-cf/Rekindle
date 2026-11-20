@@ -185,8 +185,11 @@ function customerCell(l) {
     return `<span class="no">${esc(l.exception)}</span>${fix}`;
   }
   if (l.billingType === 'Expense') return `<span class="muted">Not billed back · <a href="/reclass">${l.status === 'To be expensed' ? 'to be expensed' : 'reclass'}</a></span>`;
+  const exp = (l.billTo || []).filter((b) => b.expensed);
+  const expNote = exp.length && !l.wholeExpense ? `<div class="small muted">${exp.map((b) => `${esc(b.customer.name)} ${esc(fmtPct(b.percent))}%`).join(' · ')} expensed · <a href="/reclass">reclass</a></div>` : '';
+  if (l.wholeExpense) return `${esc(l.billTo.map((b) => b.customer.name).join(', '))}<div class="small muted">Expensed customer · <a href="/reclass">reclass</a></div>`;
   if (l.billingType === 'Allocation') {
-    return `<a href="/deals?deal=${encodeURIComponent(l.dealsTag)}">Split ${l.billTo.map((b) => fmtPct(b.percent)).join(' / ')}</a>`;
+    return `<a href="/deals?deal=${encodeURIComponent(l.dealsTag)}">Split ${l.billTo.map((b) => fmtPct(b.percent)).join(' / ')}</a>${expNote}`;
   }
   return esc(l.billTo[0]?.customer.name);
 }
@@ -327,7 +330,7 @@ export function ownersEditor(ctx, rows, { max = 20 } = {}) {
   const list = rows.slice();
   while ((list.length < rows.filter((r) => r.customerTagId).length + 1 || list.length < 3) && list.length < max) list.push({ customerTagId: '', amount: '', percent: '', start: '', end: '' });
   const custOptions = (selected) => `<option value="">Choose…</option>${customers
-    .map((c) => `<option value="${esc(c.billbackTagId)}"${String(c.billbackTagId) === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}`;
+    .map((c) => `<option value="${esc(c.billbackTagId)}"${String(c.billbackTagId) === selected ? ' selected' : ''}>${esc(c.name)}${c.expensed ? ' (expensed)' : ''}</option>`).join('')}`;
   const byAmount = list.some((o) => String(o.amount ?? '') !== '');
   const body = list
     .map((o, i) => `<tr><td><select name="owner_${i}_customer" aria-label="Owner ${i + 1} customer">${custOptions(o.customerTagId)}</select></td>
@@ -339,7 +342,7 @@ export function ownersEditor(ctx, rows, { max = 20 } = {}) {
     .join('');
   return `<div class="owners-editor"><div class="scroll"><table class="owners"><colgroup><col class="c-cust"><col class="c-amt"><col class="c-pct"><col class="c-date"><col class="c-date"><col class="c-x"></colgroup><thead><tr><th>Billback customer</th><th>$ amount</th><th>Share %</th><th>Effective from</th><th>Effective to</th><th><span class="sr-only">Clear</span></th></tr></thead><tbody class="owner-rows" data-max="${max}">${body}</tbody></table></div>
 <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn sm add-owner">Add owner</button><span class="owner-total small muted" aria-live="polite"></span></div>
-<p class="sub" style="margin:8px 0 0">Enter a <b>$ amount</b> for every owner and Rekindle works out each share % from them; or leave $ blank and type the %. Leave dates blank for "from the start" and "still active". To change ownership later, use Change the split. Clear a row to remove it.</p>
+<p class="sub" style="margin:8px 0 0">Owners marked <b>(expensed)</b> have the Expensed box ticked on their Campfire customer: their share is reclassed to the P&amp;L instead of invoiced. Enter a <b>$ amount</b> for every owner and Rekindle works out each share % from them; or leave $ blank and type the %. Leave dates blank for "from the start" and "still active". To change ownership later, use Change the split. Clear a row to remove it.</p>
 ${customers.length ? '' : '<div class="banner bad">No Billback Customer tags found in Campfire. Create one per customer first.</div>'}</div>`;
 }
 const plainAmount = (n) => fmtAmount(n);
@@ -808,7 +811,7 @@ export function panelPage(p) {
         let billed;
         if (plan?.exception) billed = `<span class="no">${esc(plan.exception)}</span>`;
         else if (plan?.billingType === 'Expense') billed = '<span class="muted">Not billed back</span>';
-        else if (plan?.billTo?.length) billed = plan.billTo.map((b) => `${esc(b.customer.name)}${b.percent < 100 ? ` ${fmtPct(b.percent)}%` : ''}`).join('<br>');
+        else if (plan?.billTo?.length) billed = plan.billTo.map((b) => `${esc(b.customer.name)}${b.percent < 100 ? ` ${fmtPct(b.percent)}%` : ''}${b.expensed ? ' (expensed)' : ''}`).join('<br>');
         else billed = '<span class="muted">—</span>';
         const rc = (p.reclasses || []).find((r) => r.line_id === line.id);
         const invoices = rc ? `Reclassed · JE ${rc.je_number ? cfLink('je', rc.campfire_je_id, rc.je_number, true) : 'posting…'}` : inv.length
@@ -871,11 +874,20 @@ function reclassHistory(ctx) {
 <div class="scroll"><table><thead><tr><th>When</th><th>JE date</th><th>Journal entry</th><th>Lines</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 
+// What Reclass moves for a line: all of an Expense line, or the shares
+// allocated to customers marked Expensed (e.g. the management company).
+const reclassAmount = (l) => (l.billingType === 'Expense' ? l.amountCents : (l.reclassCents ?? 0));
+const shareNote = (l) => {
+  if (l.billingType === 'Expense' || l.wholeExpense) return '';
+  const shares = (l.billTo || []).filter((b) => b.expensed);
+  return shares.length ? `<div class="small muted">${shares.map((b) => `${esc(fmtPct(b.percent))}% for ${esc(b.customer.name)}`).join(' · ')} of ${usd(l.amountCents)}</div>` : '';
+};
+
 export function reclassPage(ctx, flash = null) {
   const { waiting = [], accounts = new Map() } = ctx.reclass || {};
   const durable = ctx.storeKind === 'postgres' || process.env.REKINDLE_ALLOW_MEMORY_STORE === 'true';
   const canPost = ctx.admin && ctx.write && !ctx.demo && durable;
-  const total = waiting.reduce((t, l) => t + l.amountCents, 0);
+  const total = waiting.reduce((t, l) => t + reclassAmount(l), 0);
   const problemOf = (l) => {
     if (!l.rechargeCategoryId) return 'No Recharge Category tag on the line';
     if (!accounts.get(Number(l.rechargeCategoryId))) return `No expense account for ${l.rechargeCategory}`;
@@ -889,7 +901,7 @@ export function reclassPage(ctx, flash = null) {
       : '<input type="checkbox" disabled aria-label="Can\'t be reclassed yet">';
     const to = problem ? `<span class="no">${esc(problem)}</span>${ctx.admin ? ' <a href="/settings#reclass-accounts">Set</a>' : ''}` : esc(acct.account_label || `Account ${acct.account_id}`);
     return `<tr><td class="check">${box}</td><td>${esc(l.billNumber)}<div class="small muted">${esc(l.vendorName || '')}</div></td><td class="wrap">${esc(l.description || '')}</td><td>${esc(l.dealsTag || '')}</td><td>${esc(l.rechargeCategory || '—')}</td>
-<td class="wrap">${to}</td><td>${pill(l.status, l.status === 'To be expensed' ? 'background:var(--warn-tint);color:var(--warn)' : 'background:var(--hover);color:var(--nav-ink)')}</td><td class="num">${usd(l.amountCents)}</td></tr>`;
+<td class="wrap">${to}</td><td>${pill(l.status, l.status === 'To be expensed' ? 'background:var(--warn-tint);color:var(--warn)' : 'background:var(--hover);color:var(--nav-ink)')}</td><td class="num">${usd(reclassAmount(l))}${shareNote(l)}</td></tr>`;
   }).join('');
   let why = '';
   if (!ctx.admin) why = 'Only admins can post reclass entries.';
@@ -912,7 +924,7 @@ ${reclassHistory(ctx)}`,
 const todayLocal = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
 export function confirmReclassPage(ctx, { lines, date, preview }) {
-  const total = lines.reduce((t, l) => t + l.amountCents, 0);
+  const total = lines.reduce((t, l) => t + reclassAmount(l), 0);
   const problems = preview.problems || [];
   const byAccount = new Map();
   for (const r of preview.runs || []) for (const l of r.run.payload.lines) byAccount.set(l.account, (byAccount.get(l.account) || 0) + l.cents);
@@ -922,7 +934,7 @@ export function confirmReclassPage(ctx, { lines, date, preview }) {
   return layout({
     active: 'reclass', title: 'Confirm reclass', ctx,
     body: `<div><span class="small muted">Reclass › Confirm</span><h1 style="margin-top:6px">Reclass ${lines.length} line${lines.length === 1 ? '' : 's'} · ${usd(total)}</h1>
-<p class="sub">This posts a real journal entry in Campfire dated ${esc(date)}${(preview.runs || []).length > 1 ? ` (one per entity: ${preview.runs.length})` : ''} and marks the lines Expensed. A mistake is fixed by reversing the entry in Campfire.</p></div>
+<p class="sub">This posts a real journal entry in Campfire dated ${esc(date)}${(preview.runs || []).length > 1 ? ` (one per entity: ${preview.runs.length})` : ''} and marks the lines Expensed (a line also billed to other customers becomes Billed once those shares are invoiced). A mistake is fixed by reversing the entry in Campfire.</p></div>
 ${problems.length ? `<div class="banner bad">${problems.map(esc).join('<br>')}</div>` : ''}
 <div class="card"><div class="scroll"><table><thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead><tbody>${rows}</tbody></table></div>
 <form method="post" action="/reclass/create" class="pad" style="flex-direction:row;gap:8px">${hidden}<input type="hidden" name="date" value="${esc(date)}">

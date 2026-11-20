@@ -95,7 +95,10 @@ export function prepareInvoice({ customer, plan, config, date = todayET(), ref, 
     return { lineId: s.lineId, billId: l.billId, customerTagId: customer.customer.billbackTagId, cents: s.cents, percent: s.percent };
   });
   // Who pays each source line, so step 4 knows when a line is fully billed.
-  const lineOwners = Object.fromEntries(customer.sources.map((s) => [s.lineId, linesById.get(s.lineId).billTo.map((b) => b.customer.billbackTagId)]));
+  // Who each source line is invoiced to (expensed shares are reclassed instead,
+  // and the line is Billed only once that reclass is done too).
+  const lineOwners = Object.fromEntries(customer.sources.map((s) => [s.lineId, linesById.get(s.lineId).billTo.filter((b) => !b.expensed).map((b) => b.customer.billbackTagId)]));
+  const lineExpensed = customer.sources.filter((s) => linesById.get(s.lineId).billTo.some((b) => b.expensed)).map((s) => s.lineId);
   // A snapshot for the PDF, so it can be rebuilt with the invoice number later.
   const pdfInput = {
     customer: { customer: customer.customer, cents: customer.cents, sources: customer.sources },
@@ -109,7 +112,7 @@ export function prepareInvoice({ customer, plan, config, date = todayET(), ref, 
     run: {
       ref, customer_tag_id: customer.customer.billbackTagId, customer_name: customer.customer.name, client_id: clientId,
       entity_id: entityId, total_cents: customer.cents, invoice_date: date, due_date: dueDate,
-      payload: { request: body, lineOwners, pdfInput, lineSources },
+      payload: { request: body, lineOwners, lineExpensed, pdfInput, lineSources },
     },
     items,
     request: body,
@@ -246,10 +249,13 @@ export async function advanceRun(runId, { store, api, config, log = () => {} }) 
       const billed = config.billbackStatusTags.Billed;
       const partly = config.billbackStatusTags['Allocated Pending Invoice'];
       const statusIds = Object.values(config.billbackStatusTags);
+      const waitingReclass = new Set(run.payload.lineExpensed || []);
+      const reclassed = waitingReclass.size && store.reclassedLines ? await store.reclassedLines() : new Set();
       const byBill = new Map();
       for (const i of items) {
         const owners = run.payload.lineOwners[i.line_id] || [];
-        const done = owners.every((tag) => onInvoices.some((x) => x.line_id === i.line_id && x.customer_tag_id === tag));
+        const done = owners.every((tag) => onInvoices.some((x) => x.line_id === i.line_id && x.customer_tag_id === tag))
+          && (!waitingReclass.has(i.line_id) || reclassed.has(Number(i.line_id)));
         if (!byBill.has(i.bill_id)) byBill.set(i.bill_id, new Map());
         byBill.get(i.bill_id).set(i.line_id, done ? billed : partly);
       }

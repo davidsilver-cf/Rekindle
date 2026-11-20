@@ -39,6 +39,25 @@ export function splitCents(totalCents, owners) {
   return shares;
 }
 
+// A share billed to a customer marked Expensed (custom field on the Campfire
+// customer) isn't invoiced: it's reclassed to the P&L (Reclass screen).
+const isExpensed = (customer, config) => Boolean(customer) && (Boolean(customer.expensed) || Boolean(config.expensedTagIds?.has(Number(customer.billbackTagId))));
+
+// After the billTo is known: mark expensed shares, and treat a line whose
+// every share is expensed like an Expense line (To be expensed, then
+// Expensed after its reclass entry). reclassCents is what Reclass moves.
+function markExpensed(base, status, config) {
+  for (const b of base.billTo) b.expensed = isExpensed(b.customer, config);
+  const expensed = base.billTo.filter((b) => b.expensed);
+  base.reclassCents = expensed.reduce((t, b) => t + b.cents, 0);
+  base.wholeExpense = base.billTo.length > 0 && expensed.length === base.billTo.length;
+  const toExpense = config.billbackStatusTags?.['To be expensed'];
+  if (base.wholeExpense && status.name === 'Pending' && toExpense) {
+    base.stamps.push({ field: 'billbackStatusTag', value: 'To be expensed', tagId: toExpense, replace: Object.values(config.billbackStatusTags) });
+  }
+  return base;
+}
+
 // Billback statuses Rekindle works on: Pending (nothing invoiced yet),
 // Allocated Pending Invoice (a split line with some shares invoiced) and
 // To be expensed (an Expense line waiting for its reclass entry).
@@ -105,6 +124,8 @@ export function planLine(bill, line, config) {
     if (status.name === 'Pending' && toExpense) {
       base.stamps.push({ field: 'billbackStatusTag', value: 'To be expensed', tagId: toExpense, replace: Object.values(config.billbackStatusTags) });
     }
+    base.reclassCents = base.amountCents;
+    base.wholeExpense = true;
     return base;
   }
 
@@ -122,7 +143,7 @@ export function planLine(bill, line, config) {
       ? (config.billbackCustomers || []).find((c) => c.billbackTagId === existing.id) || { name: existing.name, billbackTagId: existing.id }
       : deal.customer;
     base.billTo = [{ customer, percent: 100, cents: base.amountCents }];
-    return base;
+    return markExpensed(base, status, config);
   }
 
   if (billingType === 'Allocation') {
@@ -137,7 +158,7 @@ export function planLine(bill, line, config) {
       percent: s.owner.percent,
       cents: s.cents,
     }));
-    return base;
+    return markExpensed(base, status, config);
   }
 
   return { ...base, exception: `Unknown billing type "${billingType}"` };
@@ -148,7 +169,8 @@ export function planLine(bill, line, config) {
 // of what each customer still owes, so nothing is billed twice.
 export const shareKey = (lineId, billbackTagId) => `${lineId}:${billbackTagId}`;
 
-export function planBills(bills, config, { invoiced = new Set() } = {}) {
+// reclassed: Set of line ids whose reclass entry is done (their expensed shares).
+export function planBills(bills, config, { invoiced = new Set(), reclassed = new Set() } = {}) {
   const lines = [];
   for (const bill of bills) {
     for (const line of bill.lines || []) {
@@ -157,7 +179,10 @@ export function planBills(bills, config, { invoiced = new Set() } = {}) {
     }
   }
   for (const l of lines) {
-    for (const b of l.billTo) b.invoiced = invoiced.has(shareKey(l.lineId, b.customer.billbackTagId));
+    for (const b of l.billTo) {
+      b.invoiced = !b.expensed && invoiced.has(shareKey(l.lineId, b.customer.billbackTagId));
+      if (b.expensed) b.reclassed = reclassed.has(l.lineId);
+    }
     l.invoicedShares = l.billTo.filter((b) => b.invoiced).length;
   }
 
@@ -166,7 +191,7 @@ export function planBills(bills, config, { invoiced = new Set() } = {}) {
   for (const l of lines) {
     if (l.exception) continue;
     for (const b of l.billTo) {
-      if (b.invoiced) continue;
+      if (b.invoiced || b.expensed) continue;
       const key = b.customer.name;
       if (!byCustomer.has(key)) byCustomer.set(key, { customer: b.customer, cents: 0, sources: [], categories: new Map() });
       const c = byCustomer.get(key);
@@ -180,7 +205,8 @@ export function planBills(bills, config, { invoiced = new Set() } = {}) {
   const pendingCents = lines.reduce((s, l) => s + l.amountCents, 0);
   const billedCents = [...byCustomer.values()].reduce((s, c) => s + c.cents, 0);
   const invoicedCents = lines.filter((l) => !l.exception).reduce((s, l) => s + l.billTo.filter((b) => b.invoiced).reduce((t, b) => t + b.cents, 0), 0);
-  const expenseCents = lines.filter((l) => !l.exception && l.billingType === 'Expense').reduce((s, l) => s + l.amountCents, 0);
+  // Expense lines, and expensed shares of billed-back lines (reclassed, not invoiced).
+  const expenseCents = lines.filter((l) => !l.exception).reduce((s, l) => s + (l.billingType === 'Expense' ? l.amountCents : l.billTo.filter((b) => b.expensed).reduce((t, b) => t + b.cents, 0)), 0);
   const exceptionCents = lines.filter((l) => l.exception).reduce((s, l) => s + l.amountCents, 0);
 
   return {
@@ -205,7 +231,7 @@ export function customersFor(plan, keep) {
   for (const l of plan.lines) {
     if (l.exception || !keep(l)) continue;
     for (const b of l.billTo) {
-      if (b.invoiced) continue;
+      if (b.invoiced || b.expensed) continue;
       const key = b.customer.name;
       if (!byCustomer.has(key)) byCustomer.set(key, { customer: b.customer, cents: 0, sources: [], categories: new Map() });
       const c = byCustomer.get(key);

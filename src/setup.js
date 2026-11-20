@@ -5,7 +5,7 @@
 
 export const BILLING_TYPES = ['Deal', 'Fund', 'Allocation', 'Expense'];
 
-const fileCustomer = (c) => (c ? { name: c.name, billbackTagId: c.billbackTagId, customerId: c.customerId ?? null, campfireId: c.campfireId ?? null } : null);
+const fileCustomer = (c) => (c ? { name: c.name, billbackTagId: c.billbackTagId, customerId: c.customerId ?? null, campfireId: c.campfireId ?? null, ...(c.expensed ? { expensed: true } : {}) } : null);
 
 // Billback customers someone can pick: live Billback Customer tags, or (demo)
 // the customers named in the starter file.
@@ -31,8 +31,11 @@ export function billbackCustomers(base, tags, links = new Map()) {
 //   setups:  Map dealsTagId → { billingType, customer } saved in Rekindle
 //   owners:  [{ dealsTagId, customer, percent, start, end }] saved in Rekindle
 //   saved:   [{ id, name, owners: [{ customer, amount, percent, start, end }] }] saved allocations
-export function effectiveConfig(base, { tags = null, setups = new Map(), owners = [], links = new Map(), groups = new Map(), saved = [] } = {}) {
-  const customers = billbackCustomers(base, tags, links);
+//   expensedCustomers: Set of Campfire customer ids with the Expensed checkbox
+export function effectiveConfig(base, { tags = null, setups = new Map(), owners = [], links = new Map(), groups = new Map(), saved = [], expensedCustomers = new Set() } = {}) {
+  const customers = billbackCustomers(base, tags, links).map((c) => ({ ...c, expensed: Boolean(c.expensed) || (c.customerId !== null && c.customerId !== undefined && expensedCustomers.has(Number(c.customerId))) }));
+  // Billback Customer tags whose customer is marked Expensed.
+  const expensedTagIds = new Set(customers.filter((c) => c.expensed).map((c) => Number(c.billbackTagId)));
   const dealTags = tags?.deals
     ? tags.deals.map((t) => ({ id: t.id, name: t.name }))
     : base.deals.map((d) => ({ id: d.dealsTagId, name: d.dealsTag }));
@@ -71,7 +74,7 @@ export function effectiveConfig(base, { tags = null, setups = new Map(), owners 
   const billingGroups = (tags?.billingGroups || []).map((t) => ({ id: t.id, name: t.name })).sort((a, b) => a.name.localeCompare(b.name));
   const savedAllocations = saved.map((a) => ({ id: Number(a.id), name: a.name, owners: a.owners, deals: deals.filter((d) => d.allocation && d.allocation.id === Number(a.id)).map((d) => d.dealsTag) }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { ...base, deals, allocations, billbackCustomers: customers, billingGroups, savedAllocations };
+  return { ...base, deals, allocations, billbackCustomers: customers, billingGroups, savedAllocations, expensedTagIds };
 }
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;

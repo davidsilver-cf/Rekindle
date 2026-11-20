@@ -33,20 +33,21 @@ export function unbilledRows(plan, groups, today) {
   const approved = new Set((groups || []).filter((g) => g.status === 'approved').flatMap((g) => g.lines.map((l) => l.lineId)));
   const rows = [];
   for (const l of plan.lines) {
-    const open = l.exception || l.billingType === 'Expense'
-      ? l.amountCents
-      : l.billTo.filter((b) => !b.invoiced).reduce((t, b) => t + b.cents, 0);
-    if (!open) continue;
-    const stage = l.exception ? 'Needs setup'
-      : l.billingType === 'Expense' ? 'Awaiting reclass'
-        : approved.has(l.lineId) ? 'Approved · ready to invoice' : 'Waiting for approval';
     const age = ageDays(l.billDate, today);
-    rows.push({
+    const row = (stage, cents, shares = []) => rows.push({
       lineId: l.lineId, billId: l.billId, billNumber: l.billNumber, vendorName: l.vendorName, billDate: l.billDate,
       age, bucket: bucketOf(age), description: l.description, deal: l.dealsTag || 'No deal',
-      category: l.rechargeCategory || 'Uncategorized', billingType: l.billingType, stage, cents: open,
-      shares: l.exception || l.billingType === 'Expense' ? [] : l.billTo.filter((b) => !b.invoiced).map((b) => ({ customer: b.customer.name, cents: b.cents })),
+      category: l.rechargeCategory || 'Uncategorized', billingType: l.billingType, stage, cents, shares,
     });
+    if (l.exception) { row('Needs setup', l.amountCents); continue; }
+    if (l.billingType === 'Expense') { row('Awaiting reclass', l.amountCents); continue; }
+    // Shares to invoice, and shares for Expensed customers (reclassed, not invoiced).
+    const toBill = l.billTo.filter((b) => !b.invoiced && !b.expensed);
+    const toExpense = l.billTo.filter((b) => b.expensed && !b.reclassed);
+    const billCents = toBill.reduce((t, b) => t + b.cents, 0);
+    if (billCents) row(approved.has(l.lineId) ? 'Approved · ready to invoice' : 'Waiting for approval', billCents, toBill.map((b) => ({ customer: b.customer.name, cents: b.cents })));
+    const expCents = toExpense.reduce((t, b) => t + b.cents, 0);
+    if (expCents) row('Awaiting reclass', expCents);
   }
   return rows;
 }

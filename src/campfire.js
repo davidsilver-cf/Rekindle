@@ -358,7 +358,7 @@ export async function listCustomers({ fresh = false } = {}) {
   for (let offset = 0; offset < 20_000; offset += limit) {
     const page = await request('/coa/api/vendor', { vendor_type: 'customer', limit, offset });
     const rows = Array.isArray(page) ? page : page.results || [];
-    all.push(...rows.filter((v) => !v.is_deleted && (v.vendor_type || 'customer') === 'customer' && v.status !== 'INACTIVE').map((v) => ({ id: v.id, name: v.name || v.company_name || v.display_name || '' })));
+    all.push(...rows.filter((v) => !v.is_deleted && (v.vendor_type || 'customer') === 'customer' && v.status !== 'INACTIVE').map((v) => ({ id: v.id, name: v.name || v.company_name || v.display_name || '', expensed: v.custom_field_expensed === true })));
     if (rows.length < limit) break;
   }
   customersCache = { at: Date.now(), rows: all };

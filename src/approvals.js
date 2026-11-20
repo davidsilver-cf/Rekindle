@@ -14,7 +14,8 @@ export function linePrint(l) {
 export function dealGroups(plan, config) {
   const groups = new Map();
   for (const l of plan.lines) {
-    if (l.exception || l.billingType === 'Expense') continue;
+    // Expense lines and lines expensed in full are reclassed straight away, without approval.
+    if (l.exception || l.billingType === 'Expense' || l.wholeExpense) continue;
     const deal = config.deals.find((d) => d.dealsTag === l.dealsTag);
     if (!deal) continue;
     if (!groups.has(deal.dealsTagId)) groups.set(deal.dealsTagId, { deal, lines: [], cents: 0 });

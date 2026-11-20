@@ -190,9 +190,9 @@ async function handleWebhook(req, res) {
 
 async function screenContext(user) {
   const store = await getStore();
-  const [config, bills, invoiced] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares()]);
-  const plan = planBills(bills, config, { invoiced });
-  const [approvers, decisions, runs, reclassed, reclassAccounts, reclassRuns] = await Promise.all([store.getApprovers(), store.latestDecisions(), store.listRuns(30), store.reclassedLines(), store.getReclassAccounts(), store.listReclass(30)]);
+  const [config, bills, invoiced, reclassed] = await Promise.all([loadConfig(), loadBills(), store.invoicedShares(), store.reclassedLines()]);
+  const plan = planBills(bills, config, { invoiced, reclassed });
+  const [approvers, decisions, runs, reclassAccounts, reclassRuns] = await Promise.all([store.getApprovers(), store.latestDecisions(), store.listRuns(30), store.getReclassAccounts(), store.listReclass(30)]);
   const groups = withStatus(dealGroups(plan, config), approvers, decisions).map((g) => ({ ...g, canDecide: canDecide(user, g) }));
   const readiness = new Map(plan.customers.map((c) => [c.customer.name, customerReady(c, plan, groups)]));
   return {

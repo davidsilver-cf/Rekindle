@@ -1,5 +1,8 @@
-// Reclass: moving Expense lines (deal costs not billed back) off the unbilled
-// account with one Campfire journal entry per batch, as recorded steps:
+import { fmtPct } from './format.js';
+// Reclass: moving deal costs not billed back off the unbilled account with
+// one Campfire journal entry per batch: Expense lines in full, and the
+// shares of billed-back lines that bill a customer marked Expensed (e.g. the
+// management company's 10%). Recorded steps:
 //
 //   1. reserve  Save the run and its bill lines; a line already on a reclass
 //               is refused, so nothing is reclassed twice.
@@ -7,7 +10,10 @@
 //               Dr the Recharge Category's expense account / Cr the line's
 //               unbilled account, one pair per source line, each carrying the
 //               line's department, vendor and tags (Billback Status = Expensed).
-//   3. lines    Mark the source bill lines Expensed.          → complete
+//   3. lines    Mark the source bill lines: Expensed when the whole line
+//               was reclassed; for a line also billed to others, Billed
+//               once its other shares are invoiced, else Allocated Pending
+//               Invoice.                                       → complete
 //
 // A clear refusal from Campfire at step 2 releases the lines (failed); an
 // unknown outcome is held for a person to check (unknown), never retried blind.
@@ -19,17 +25,24 @@ export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const money = (cents) => Math.round(cents) / 100;
 
 // Tags for a reclass line: the bill line's own tags except its billback status
-// and billback customer, plus Billback Status = Expensed.
-export function reclassLineTags(sourceTags, config) {
+// and billback customer, plus Billback Status = Expensed, and for an expensed
+// share the Billback Customer it was allocated to (e.g. the management company).
+export function reclassLineTags(sourceTags, config, customer = null) {
   const skip = new Set([config.tagGroups.billbackStatus, config.tagGroups.billbackCustomer]);
   const ids = (sourceTags || []).filter((t) => !skip.has(t.group)).map((t) => t.id);
   if (config.billbackStatusTags?.Expensed) ids.push(config.billbackStatusTags.Expensed);
+  if (customer?.billbackTagId) ids.push(customer.billbackTagId);
   return [...new Set(ids)].map((id) => ({ id }));
 }
 
-// Expense lines still waiting for a reclass.
+// What a line has to reclass: an Expense line in full, otherwise its shares
+// billed to Expensed customers.
+export const reclassCentsOf = (l) => (l.billingType === 'Expense' ? l.amountCents : (l.reclassCents ?? 0));
+export const expensedShares = (l) => (l.billingType === 'Expense' ? [] : (l.billTo || []).filter((b) => b.expensed));
+
+// Lines with something still waiting for a reclass.
 export function waitingLines(plan, reclassed) {
-  return plan.lines.filter((l) => !l.exception && l.billingType === 'Expense' && !reclassed.has(l.lineId));
+  return plan.lines.filter((l) => !l.exception && reclassCentsOf(l) > 0 && !reclassed.has(l.lineId));
 }
 
 // What can't be reclassed yet, per line.
@@ -61,19 +74,24 @@ export function prepareReclass({ lines, accounts, config, date = todayET(), ref 
     const runRef = byEntity.size > 1 ? `${ref}-${i + 1}` : ref;
     const transactions = [];
     for (const l of ls) {
-      const tags = reclassLineTags(l.sourceTags, config);
       const what = `${l.dealsTag || 'No deal'} · ${l.rechargeCategory}: ${l.description || 'expense'} (${l.vendorName ? `${l.vendorName} ` : ''}${l.billNumber})`.slice(0, 250);
-      const common = {
-        ...(l.departmentId ? { department: l.departmentId } : {}),
-        ...(l.vendorId ? { vendor: l.vendorId } : {}),
-        tags,
-        bank_description: what,
-      };
-      const amt = money(l.amountCents);
-      transactions.push({ account: Number(accounts.get(Number(l.rechargeCategoryId)).account_id), debit_amount_native: amt, debit_amount: amt, ...common });
-      transactions.push({ account: Number(l.accountId), credit_amount_native: amt, credit_amount: amt, ...common });
+      // One Dr/Cr pair per line, or per expensed share (each tagged to its customer).
+      const parts = expensedShares(l).length
+        ? expensedShares(l).map((b) => ({ cents: b.cents, customer: b.customer, note: `${fmtPct(b.percent)}% share expensed for ${b.customer.name}` }))
+        : [{ cents: l.amountCents, customer: null, note: '' }];
+      for (const part of parts) {
+        const common = {
+          ...(l.departmentId ? { department: l.departmentId } : {}),
+          ...(l.vendorId ? { vendor: l.vendorId } : {}),
+          tags: reclassLineTags(l.sourceTags, config, part.customer),
+          bank_description: (part.note ? `${what} · ${part.note}` : what).slice(0, 250),
+        };
+        const amt = money(part.cents);
+        transactions.push({ account: Number(accounts.get(Number(l.rechargeCategoryId)).account_id), debit_amount_native: amt, debit_amount: amt, ...common });
+        transactions.push({ account: Number(l.accountId), credit_amount_native: amt, credit_amount: amt, ...common });
+      }
     }
-    const total = ls.reduce((s, l) => s + l.amountCents, 0);
+    const total = ls.reduce((s, l) => s + reclassCentsOf(l), 0);
     const request = {
       date,
       type: 'journal_entry',
@@ -82,10 +100,13 @@ export function prepareReclass({ lines, accounts, config, date = todayET(), ref 
       ref_number: runRef,
       transactions,
     };
-    const summary = ls.map((l) => ({ lineId: l.lineId, billId: l.billId, billNumber: l.billNumber, vendorName: l.vendorName, description: l.description, deal: l.dealsTag, category: l.rechargeCategory, account: accounts.get(Number(l.rechargeCategoryId)).account_label, cents: l.amountCents }));
+    const summary = ls.map((l) => ({ lineId: l.lineId, billId: l.billId, billNumber: l.billNumber, vendorName: l.vendorName, description: l.description, deal: l.dealsTag, category: l.rechargeCategory, account: accounts.get(Number(l.rechargeCategoryId)).account_label, cents: reclassCentsOf(l), lineCents: l.amountCents, expensedFor: expensedShares(l).map((b) => ({ name: b.customer.name, percent: b.percent, cents: b.cents })) }));
+    // Lines also billed to other customers don't become Expensed: Billed once
+    // those shares are invoiced (checked when the entry posts).
+    const billedOwners = Object.fromEntries(ls.filter((l) => l.billingType !== 'Expense' && !l.wholeExpense).map((l) => [l.lineId, l.billTo.filter((b) => !b.expensed).map((b) => b.customer.billbackTagId)]));
     return {
-      run: { ref: runRef, entity_id: entity === 'none' ? null : Number(entity), je_date: date, total_cents: total, payload: { request, lines: summary } },
-      items: ls.map((l) => ({ lineId: l.lineId, billId: l.billId, cents: l.amountCents })),
+      run: { ref: runRef, entity_id: entity === 'none' ? null : Number(entity), je_date: date, total_cents: total, payload: { request, lines: summary, billedOwners } },
+      items: ls.map((l) => ({ lineId: l.lineId, billId: l.billId, cents: reclassCentsOf(l) })),
     };
   });
   return { problems, runs };
@@ -120,11 +141,19 @@ export async function advanceReclass(runId, { store, api, config, log = () => {}
     try {
       const items = await store.reclassRunItems(run.id);
       const expensed = config.billbackStatusTags.Expensed;
+      const billed = config.billbackStatusTags.Billed;
+      const partly = config.billbackStatusTags['Allocated Pending Invoice'];
       const statusIds = Object.values(config.billbackStatusTags);
+      const billedOwners = run.payload?.billedOwners || {};
+      const mixed = items.filter((i) => billedOwners[i.line_id]);
+      const onInvoices = mixed.length && store.itemsForLines ? await store.itemsForLines(mixed.map((i) => i.line_id)) : [];
       const byBill = new Map();
       for (const i of items) {
         if (!byBill.has(i.bill_id)) byBill.set(i.bill_id, new Map());
-        byBill.get(i.bill_id).set(i.line_id, expensed);
+        const owners = billedOwners[i.line_id];
+        const status = !owners ? expensed
+          : owners.every((tag) => onInvoices.some((x) => Number(x.line_id) === Number(i.line_id) && Number(x.customer_tag_id) === Number(tag))) ? billed : partly;
+        byBill.get(i.bill_id).set(i.line_id, status);
       }
       for (const [billId, statusByLine] of byBill) {
         const bill = await api.getBill(billId);

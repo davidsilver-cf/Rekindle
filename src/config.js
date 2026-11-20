@@ -33,14 +33,26 @@ export async function loadConfig() {
   // customer with exactly the same name (case and spacing ignored).
   const links = new Map(savedLinks);
   const unlinked = (tags?.billbackCustomers || []).filter((t) => !t.customer && !links.has(Number(t.id)));
-  if (unlinked.length) {
+  // Campfire customers: for name matching, and the "Expensed" checkbox
+  // (custom field expensed): shares billed to those customers are reclassed
+  // to the P&L instead of invoiced.
+  let customers = [];
+  if (!demoMode()) {
     const { listCustomers } = await import('./campfire.js');
+    customers = await listCustomers().catch(() => []);
+  }
+  if (unlinked.length) {
     const norm = (x) => String(x || '').trim().replace(/\s+/g, ' ').toLowerCase();
-    const customers = await listCustomers().catch(() => []);
+    // A tag with no matching name in the cached list: look again, fresh.
+    if (unlinked.some((t) => !customers.some((c) => norm(c.name) === norm(t.name)))) {
+      const { listCustomers } = await import('./campfire.js');
+      customers = await listCustomers({ fresh: true }).catch(() => customers);
+    }
     for (const t of unlinked) {
       const same = customers.filter((c) => norm(c.name) === norm(t.name));
       if (same.length === 1) links.set(Number(t.id), Number(same[0].id));
     }
   }
-  return effectiveConfig(config, { tags, setups, owners, links, groups, saved });
+  const expensedCustomers = new Set(customers.filter((c) => c.expensed).map((c) => Number(c.id)));
+  return effectiveConfig(config, { tags, setups, owners, links, groups, saved, expensedCustomers });
 }
