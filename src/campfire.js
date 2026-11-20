@@ -277,6 +277,52 @@ export function createTag({ name, group, customer }) {
   return request('/coa/api/tag', {}, { method: 'POST', body: { name, group, ...(customer ? { customer } : {}) } });
 }
 
+// Rename a tag (e.g. a deal). Partial update; PUT with the name if PATCH isn't allowed.
+export async function renameTag(id, name) {
+  const path = `/coa/api/tag/${id}`;
+  try {
+    return await request(path, {}, { method: 'PATCH', body: { name } });
+  } catch (err) {
+    if (err.status !== 405) throw err;
+    return request(path, {}, { method: 'PUT', body: { name } });
+  }
+}
+
+// Retire a tag the way Campfire retires a project: deactivate it, so any
+// history keeps its tagging. If Campfire won't take is_active, delete it.
+export async function retireTag(id) {
+  const path = `/coa/api/tag/${id}`;
+  try {
+    return await request(path, {}, { method: 'PATCH', body: { is_active: false } });
+  } catch (err) {
+    if (![400, 405].includes(err.status)) throw err;
+    return request(path, {}, { method: 'DELETE' });
+  }
+}
+
+// Where a tag is used in Campfire: bills (any status) and invoices with a
+// line carrying it. Each list is read in full and checked line by line (the
+// tag filter is only a hint), stopping at the first few found.
+const lineHasTag = (line, id) => (line.tags || []).some((t) => Number(t?.id ?? t) === Number(id)) || (line.tag_ids || []).map(Number).includes(Number(id));
+export async function tagUsage(tagId, { max = 5 } = {}) {
+  const scan = async (path) => {
+    const found = [];
+    const limit = 200;
+    for (let offset = 0; offset < 100_000 && found.length < max; offset += limit) {
+      const page = await request(path, { tag_ids: tagId, limit, offset });
+      const rows = Array.isArray(page) ? page : page.results || [];
+      for (const r of rows) if (!r.is_deleted && (r.lines || []).some((l) => lineHasTag(l, tagId))) found.push(r);
+      if (rows.length < limit) break;
+    }
+    return found;
+  };
+  const [bills, invoices] = await Promise.all([scan('/coa/api/v1/bill'), scan('/coa/api/v1/invoice')]);
+  return {
+    bills: bills.map((b) => ({ id: b.id, number: b.bill_number || String(b.id) })),
+    invoices: invoices.map((i) => ({ id: i.id, number: i.invoice_number || String(i.id) })),
+  };
+}
+
 // Customers live under /coa/api/vendor with vendor_type "customer".
 export function createCustomer({ name, email }) {
   return request('/coa/api/vendor', {}, { method: 'POST', body: { vendor_type: 'customer', name, company_name: name, ...(email ? { email } : {}) } });

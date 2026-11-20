@@ -207,3 +207,6 @@ CREATE TABLE IF NOT EXISTS saved_allocation_owners (
 );
 CREATE INDEX IF NOT EXISTS saved_allocation_owners_idx ON saved_allocation_owners (allocation_id);
 ALTER TABLE deal_settings ADD COLUMN IF NOT EXISTS allocation_id bigint;
+
+-- A saved allocation that has split a line on an invoice or reclass can't be deleted.
+ALTER TABLE saved_allocations ADD COLUMN IF NOT EXISTS used_at timestamptz;

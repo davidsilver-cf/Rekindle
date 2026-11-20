@@ -27,14 +27,19 @@ FROM allocation_owners ORDER BY deals_tag_id, start_date NULLS FIRST, percent DE
   deleteOwners: 'DELETE FROM allocation_owners WHERE deals_tag_id = $1',
   insertOwner: `INSERT INTO allocation_owners (deals_tag_id, customer, percent, start_date, end_date, updated_by, amount)
 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-  savedAllocations: 'SELECT id, name FROM saved_allocations ORDER BY lower(name)',
+  savedAllocations: 'SELECT id, name, used_at FROM saved_allocations ORDER BY lower(name)',
   savedAllocationOwners: `SELECT allocation_id, customer, amount, percent, to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date
 FROM saved_allocation_owners ORDER BY allocation_id, start_date NULLS FIRST, percent DESC, id`,
   insertSavedAllocation: 'INSERT INTO saved_allocations (name, created_by, updated_by) VALUES ($1, $2, $2) RETURNING id',
   renameSavedAllocation: 'UPDATE saved_allocations SET name = $2, updated_by = $3, updated_at = now() WHERE id = $1',
   deleteSavedAllocationOwners: 'DELETE FROM saved_allocation_owners WHERE allocation_id = $1',
   insertSavedAllocationOwner: `INSERT INTO saved_allocation_owners (allocation_id, customer, amount, percent, start_date, end_date) VALUES ($1, $2, $3, $4, $5, $6)`,
-  deleteSavedAllocation: 'DELETE FROM saved_allocations WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM deal_settings WHERE allocation_id = $1 AND billing_type = \'Allocation\')',
+  deleteSavedAllocation: 'DELETE FROM saved_allocations WHERE id = $1 AND used_at IS NULL AND NOT EXISTS (SELECT 1 FROM deal_settings WHERE allocation_id = $1 AND billing_type = \'Allocation\')',
+  markAllocationsUsed: 'UPDATE saved_allocations SET used_at = COALESCE(used_at, now()) WHERE id = ANY($1::bigint[])',
+  deleteDealSettings: 'DELETE FROM deal_settings WHERE deals_tag_id = $1',
+  renameDealSettings: 'UPDATE deal_settings SET deals_tag_name = $2, updated_by = $3, updated_at = now() WHERE deals_tag_id = $1',
+  dealReclassRuns: `SELECT count(*)::int AS n FROM reclass_runs WHERE status <> 'failed' AND payload->'lines' @> $1::jsonb`,
+  dealInvoiceRuns: `SELECT count(*)::int AS n FROM invoice_runs WHERE status <> 'failed' AND payload->'pdfInput'->'plan'->'lines' @> $1::jsonb`,
   shares: 'SELECT line_id, customer_tag_id FROM invoice_items',
   insertRun: `INSERT INTO invoice_runs (ref, customer_tag_id, customer_name, client_id, entity_id, total_cents, invoice_date, due_date, status, payload, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'creating', $9, $10) RETURNING id`,
@@ -177,7 +182,21 @@ export function memoryStore() {
       for (const o of ownerRows) owners.push({ dealsTagId, ...o });
       log.push({ at: new Date(), actor_email: actor, action: 'set_deal_setup', detail: { dealsTagId, name, ...setup, owners: ownerRows } });
     },
-    async getSavedAllocations() { return savedAllocs.map((a) => ({ id: a.id, name: a.name, owners: a.owners.map((o) => ({ ...o })) })); },
+    async getSavedAllocations() { return savedAllocs.map((a) => ({ id: a.id, name: a.name, usedAt: a.usedAt || null, owners: a.owners.map((o) => ({ ...o })) })); },
+    async markAllocationsUsed(ids) { for (const a of savedAllocs) if (ids.map(Number).includes(a.id) && !a.usedAt) a.usedAt = new Date().toISOString(); },
+    async dealHistory(name) {
+      const reclass = reclassRuns.filter((r) => r.status !== 'failed' && (r.payload?.lines || []).some((l) => l.deal === name)).length;
+      const invoices = runs.filter((r) => r.status !== 'failed' && (r.payload?.pdfInput?.plan?.lines || []).some((l) => l.dealsTag === name)).length;
+      return { reclass, invoices };
+    },
+    async deleteDeal(dealsTagId, name, actor) {
+      setups.delete(dealsTagId);
+      billingGroups.delete(dealsTagId);
+      approvers.delete(dealsTagId);
+      for (let i = owners.length - 1; i >= 0; i--) if (owners[i].dealsTagId === dealsTagId) owners.splice(i, 1);
+      log.push({ at: new Date(), actor_email: actor, action: 'delete_deal', detail: { dealsTagId, name } });
+    },
+    async renameDeal(dealsTagId, from, to, actor) { log.push({ at: new Date(), actor_email: actor, action: 'rename_deal', detail: { dealsTagId, from, to } }); },
     async saveAllocation({ id = null, name, owners: rows }, actor) {
       const clash = savedAllocs.find((a) => a.name.toLowerCase() === name.toLowerCase() && a.id !== Number(id));
       if (clash) throw new Error(`There's already an allocation called "${clash.name}".`);
@@ -192,7 +211,7 @@ export function memoryStore() {
     async deleteAllocation(id, actor) {
       const inUse = [...setups.values()].some((v) => v.billingType === 'Allocation' && Number(v.allocationId) === Number(id));
       const i = savedAllocs.findIndex((a) => a.id === Number(id));
-      if (inUse || i < 0) return false;
+      if (inUse || i < 0 || savedAllocs[i].usedAt) return false;
       const [a] = savedAllocs.splice(i, 1);
       log.push({ at: new Date(), actor_email: actor, action: 'delete_allocation', detail: { id: a.id, name: a.name } });
       return true;
@@ -355,7 +374,7 @@ export async function postgresStore(connectionString) {
     async getSavedAllocations() {
       const [{ rows: list }, { rows: owners }] = await Promise.all([q(SQL.savedAllocations), q(SQL.savedAllocationOwners)]);
       return list.map((a) => ({
-        id: Number(a.id), name: a.name,
+        id: Number(a.id), name: a.name, usedAt: a.used_at || null,
         owners: owners.filter((o) => Number(o.allocation_id) === Number(a.id)).map((o) => ({ customer: o.customer, amount: o.amount === null ? null : Number(o.amount), percent: Number(o.percent), start: o.start_date, end: o.end_date })),
       }));
     },
@@ -382,6 +401,30 @@ export async function postgresStore(connectionString) {
       } finally {
         client.release();
       }
+    },
+    async markAllocationsUsed(ids) { if (ids.length) await q(SQL.markAllocationsUsed, [ids.map(Number)]); },
+    async dealHistory(name) {
+      const [r, i] = await Promise.all([q(SQL.dealReclassRuns, [JSON.stringify([{ deal: name }])]), q(SQL.dealInvoiceRuns, [JSON.stringify([{ dealsTag: name }])])]);
+      return { reclass: r.rows[0].n, invoices: i.rows[0].n };
+    },
+    async deleteDeal(dealsTagId, name, actor) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(SQL.deleteOwners, [dealsTagId]);
+        await client.query(SQL.deleteDealSettings, [dealsTagId]);
+        await client.query(SQL.audit, [actor, 'delete_deal', JSON.stringify({ dealsTagId, name })]);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+    async renameDeal(dealsTagId, from, to, actor) {
+      await q(SQL.renameDealSettings, [dealsTagId, to, actor]);
+      await q(SQL.audit, [actor, 'rename_deal', JSON.stringify({ dealsTagId, from, to })]);
     },
     async deleteAllocation(id, actor) {
       const r = await q(SQL.deleteSavedAllocation, [Number(id)]);

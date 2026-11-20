@@ -21,7 +21,7 @@ const tags = {
   47765: [tag(1078262, 'Deal', 47765), tag(1078263, 'Fund', 47765)],
   46589: [tag(LEGAL, 'Legal', 46589), tag(1027806, 'Expense - Meals', 46589), tag(1027807, 'Expense - Travel', 46589), tag(1027999, 'Zebra', 46589)],
 };
-const sent = { jes: [], patches: [], tags: [], customers: [] };
+const sent = { jes: [], patches: [], tags: [], customers: [], tagPatches: [] };
 const customers = [];
 let failNext = null;
 const fake = http.createServer((req, res) => {
@@ -52,7 +52,17 @@ const fake = http.createServer((req, res) => {
       (tags[t.group] = tags[t.group] || []).push(made);
       return json(201, made);
     }
-    if (url.pathname === '/coa/api/v1/tag' || url.pathname === '/coa/api/tag') { const r = tags[url.searchParams.get('group')] || []; return json(200, { results: r }); }
+    const tm = url.pathname.match(/^\/coa\/api\/tag\/(\d+)$/);
+    if (tm && req.method === 'PATCH') {
+      const t = Object.values(tags).flat().find((x) => x.id === Number(tm[1]));
+      if (!t) return json(404, {});
+      const patch = JSON.parse(body);
+      sent.tagPatches.push({ id: t.id, ...patch });
+      Object.assign(t, patch);
+      return json(200, t);
+    }
+    if (url.pathname === '/coa/api/v1/invoice' && req.method === 'GET') return json(200, { results: [] });
+    if (url.pathname === '/coa/api/v1/tag' || url.pathname === '/coa/api/tag') { const r = (tags[url.searchParams.get('group')] || []).filter((t) => t.is_active !== false); return json(200, { results: r }); }
     if (url.pathname === '/coa/api/vendor' && req.method === 'GET') return json(200, { results: customers.filter((c) => c.name.toLowerCase().includes((url.searchParams.get('q') || '').toLowerCase())) });
     if (url.pathname === '/coa/api/vendor' && req.method === 'POST') {
       const c = { id: 3000000 + customers.length + 1, vendor_type: 'customer', ...JSON.parse(body) };
@@ -340,4 +350,42 @@ test('Allocations tab: create a saved allocation by $, use it on a deal, change 
   // Back to its own split, then it can go.
   await post('/deals/setup', { deal: '1028616', billingType: 'Allocation', owner_0_customer: '1027956', owner_0_percent: '100' });
   assert.equal((await post('/allocations/delete', { id })).headers.get('location'), '/allocations?deleted=1');
+});
+
+test('Deals: rename changes the Deals tag in Campfire; delete is refused while transactions use the deal, and retires the tag when none do', async () => {
+  // Rename "Fund II - Employees Only" (no clash allowed).
+  assert.match(await (await post('/deals/rename', { deal: '1028616', name: 'deal xyz' })).text(), /already a deal called/);
+  const ren = await post('/deals/rename', { deal: '1028616', name: 'Fund II Staff' });
+  assert.equal(ren.headers.get('location'), '/deals?deal=Fund%20II%20Staff&renamed=1');
+  assert.deepEqual(sent.tagPatches.at(-1), { id: 1028616, name: 'Fund II Staff' });
+  assert.match(await (await get('/deals?deal=Fund%20II%20Staff')).text(), /Fund II Staff/);
+  // Delete Deal XYZ: its bill lines block it.
+  const blocked = await (await get('/deals/delete?deal=1027801')).text();
+  assert.match(blocked, /can't be deleted/);
+  assert.match(blocked, /bills in Campfire/);
+  assert.equal((await post('/deals/delete', { deal: '1027801', confirm: 'yes' })).status, 400);
+  assert.ok(!sent.tagPatches.some((p) => p.id === 1027801));
+  // A new deal with nothing booked: confirm, then delete.
+  await post('/deals/create', { name: 'Project Zephyr', billingType: 'Expense' });
+  const z = tags[46588].find((t) => t.name === 'Project Zephyr');
+  assert.ok(z);
+  const ask = await (await get(`/deals/delete?deal=${z.id}`)).text();
+  assert.match(ask, /No bills, invoices or reclass entries use/);
+  const del = await post('/deals/delete', { deal: String(z.id), confirm: 'yes' });
+  assert.equal(del.headers.get('location'), '/deals?deleted=Project%20Zephyr');
+  assert.deepEqual(sent.tagPatches.at(-1), { id: z.id, is_active: false });
+  assert.doesNotMatch(await (await get('/deals')).text(), /Project Zephyr<\/b>/);
+});
+
+test('a saved allocation that has split invoiced or reclassed lines can\'t be deleted', async () => {
+  const made = await post('/allocations/save', { name: 'Old Split', owner_0_customer: '1027955', owner_0_percent: '100' });
+  const id = Number(made.headers.get('location').match(/a=(\d+)/)[1]);
+  const { getStore } = await import('../src/store.js');
+  await (await getStore()).markAllocationsUsed([id]);
+  const page = await (await get(`/allocations?a=${id}`)).text();
+  assert.match(page, /kept for the record/);
+  assert.doesNotMatch(page, /Delete allocation/);
+  const del = await post('/allocations/delete', { id: String(id) });
+  assert.equal(del.status, 400);
+  assert.match(await del.text(), /kept for the record/);
 });

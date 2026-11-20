@@ -14,7 +14,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName, entityInvoiceMessage, listInvoices, entityLogo, fetchLogo } from './campfire.js';
+import { listBills, getBill, updateBill, createInvoice, uploadFile, getInvoice, updateInvoice, createJournalEntry, listExpenseAccounts, listTags, createTag, createCustomer, findCustomerByName, entityInvoiceMessage, listInvoices, entityLogo, fetchLogo, renameTag, retireTag, tagUsage } from './campfire.js';
 import { dashboardData } from './dashboard.js';
 import { dashboardPage, dashboardCsv } from './dashboard-ui.js';
 import { validateNewDeal, createDeal } from './newdeal.js';
@@ -25,7 +25,7 @@ import { formatPlan } from './report.js';
 import { verifySignature } from './webhook.js';
 import { loadConfig, writeEnabled, demoMode } from './config.js';
 import { validateSetup, validateOwners } from './setup.js';
-import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage, reclassPage, confirmReclassPage, newDealPage, allocationsPage } from './ui.js';
+import { queuePage, dealsPage, approvalsPage, invoicesPage, confirmInvoicesPage, loginPage, readFilters, settingsPage, panelPage, linkPage, reclassPage, confirmReclassPage, newDealPage, allocationsPage, deleteDealPage } from './ui.js';
 import { SESSION_COOKIE, makeSession, readSession, sessionCookie, cookieValue, isAdmin, allowedToSignIn, allowedWorkspace, linkedEmail, LINK_COOKIE, makeLinkToken, readLinkToken, isUnlinkedCampfireUser, setSettingsAdmins, envAdmins } from './session.js';
 import { googleConfigured, startLogin, finishLogin } from './google.js';
 import { oauthConfigured, startAuth, finishAuth, verifyContext, revoke, discovery } from './campfire-oauth.js';
@@ -253,7 +253,9 @@ const SCREENS = {
   },
   '/deals': (ctx, url) => dealsPage(ctx, url.searchParams.get('deal'), url.searchParams.has('created')
     ? { ok: true, text: url.searchParams.has('owners') ? 'Deal created in Campfire. Add its owners and shares below, then Save setup.' : 'Deal created in Campfire and set up. AP can code bills to it now.' }
-    : url.searchParams.has('saved') ? { ok: true, text: 'Deal setup saved. The queue and approvals use it right away.' } : null),
+    : url.searchParams.has('saved') ? { ok: true, text: 'Deal setup saved. The queue and approvals use it right away.' }
+      : url.searchParams.has('renamed') ? { ok: true, text: 'Deal renamed, here and on its Deals tag in Campfire.' }
+        : url.searchParams.has('deleted') ? { ok: true, text: `Deal "${url.searchParams.get('deleted')}" deleted: its Deals tag is retired in Campfire and its setup removed here.` } : null),
   '/allocations': (ctx, url) => {
     const s = url.searchParams;
     const text = s.has('created') ? 'Allocation created. Pick it in each Allocation deal\'s Setup.' : s.has('saved') ? 'Allocation saved. Every deal using it follows from now on.' : s.has('deleted') ? 'Allocation deleted.' : null;
@@ -294,6 +296,41 @@ const SCREENS = {
     return invoicesPage(invoiceView(ctx, invoiceFilter(s)), s.get('customer'), flash);
   },
 };
+
+// A saved allocation that split a line now on an invoice or reclass is used:
+// from then on it can't be deleted.
+async function markUsedAllocations(lineIds, ctx, store) {
+  const want = new Set(lineIds.map(Number));
+  const ids = new Set();
+  for (const l of ctx.plan.lines) {
+    if (!want.has(Number(l.lineId))) continue;
+    const deal = ctx.config.deals.find((d) => d.dealsTag === l.dealsTag);
+    if (deal?.allocation) ids.add(deal.allocation.id);
+  }
+  if (ids.size && store.markAllocationsUsed) await store.markAllocationsUsed([...ids]).catch(() => {});
+}
+
+// What stops a deal being deleted: transactions booked to it. Bills and
+// invoices in Campfire with a line tagged to it, open lines Rekindle is
+// working on, and Rekindle invoices or reclass entries that included it.
+async function dealBlockers(deal, ctx, store) {
+  const blockers = [];
+  const open = ctx.plan.lines.filter((l) => l.dealsTag === deal.dealsTag).length;
+  if (open) blockers.push(`${open} open bill line${open === 1 ? '' : 's'} on the Billback Queue`);
+  const hist = await store.dealHistory(deal.dealsTag);
+  if (hist.invoices) blockers.push(`${hist.invoices} Rekindle invoice${hist.invoices === 1 ? '' : 's'}`);
+  if (hist.reclass) blockers.push(`${hist.reclass} reclass journal entr${hist.reclass === 1 ? 'y' : 'ies'}`);
+  if (!ctx.demo) {
+    try {
+      const u = await tagUsage(deal.dealsTagId);
+      if (u.bills.length) blockers.push(`bills in Campfire (${u.bills.map((b) => b.number).join(', ')}${u.bills.length >= 5 ? ', …' : ''})`);
+      if (u.invoices.length) blockers.push(`invoices in Campfire (${u.invoices.map((i) => i.number).join(', ')}${u.invoices.length >= 5 ? ', …' : ''})`);
+    } catch (err) {
+      blockers.push(`Rekindle couldn't check Campfire for transactions on this deal (${err.message}), so it won't delete it`);
+    }
+  }
+  return blockers;
+}
 
 // Change the split from a date: the existing owners end the day before (rows
 // starting on or after it are replaced) and the new owners start that day.
@@ -810,6 +847,7 @@ async function handle(req, res) {
       for (const customer of chosen) {
         try {
           const out = await startInvoice({ customer, plan: ctx.plan, config: ctx.config, store, api: campfireApi, user, date, log: console.log });
+          if (out.ok) await markUsedAllocations(customer.sources.map((x) => x.lineId), ctx, store);
           if (!out.ok) { tally.failed++; console.log(JSON.stringify({ event: 'invoice_blocked', customer: customer.customer.name, problems: out.problems })); continue; }
           const st = out.run.status;
           if (st === 'complete') tally.done++;
@@ -898,6 +936,7 @@ async function handle(req, res) {
       try {
         const out = await startReclass({ lines, accounts: ctx.reclass.accounts, config: ctx.config, store, api: campfireApi, user, date, log: console.log });
         if (!out.ok) return redirect(res, `/reclass?problems=${encodeURIComponent(out.problems.join(' '))}`);
+        await markUsedAllocations(lines.map((l) => l.lineId), ctx, store);
         for (const r of out.runs) {
           if (r.status === 'complete') tally.done++;
           else if (r.status === 'unknown') tally.held++;
@@ -1007,6 +1046,49 @@ async function handle(req, res) {
     }
   }
 
+  // ---- Rename or delete a deal (its Deals tag in Campfire, and its setup here)
+  if (url.pathname === '/deals/rename' || url.pathname === '/deals/delete') {
+    if (!user) return redirect(res, '/login');
+    if (!isAdmin(user)) return send(res, 403, 'Only admins can rename or delete deals.');
+    const form = req.method === 'POST' ? new URLSearchParams(await readBody(req)) : url.searchParams;
+    const ctx = { ...(await screenContext(user)), embed, theme: res.rekindleTheme, path: '/deals' };
+    const deal = ctx.config.deals.find((d) => d.dealsTagId === Number(form.get('deal')));
+    if (!deal) return send(res, 400, 'Unknown deal.');
+    const store = await getStore();
+    const canWrite = !ctx.demo && writeEnabled();
+    const back = (text, ok = false) => html(res, dealsPage(ctx, deal.dealsTag, { ok, text }), ok ? 200 : 400);
+
+    if (url.pathname === '/deals/rename') {
+      if (req.method !== 'POST') return send(res, 405, 'Method not allowed');
+      const name = String(form.get('name') || '').trim().replace(/\s+/g, ' ');
+      if (!name) return back('Enter the new deal name.');
+      if (name.length > 250) return back('Deal names can be at most 250 characters.');
+      if (name === deal.dealsTag) return redirect(res, `/deals?deal=${encodeURIComponent(deal.dealsTag)}`);
+      if (ctx.config.deals.some((d) => d !== deal && d.dealsTag.toLowerCase() === name.toLowerCase())) return back(`There's already a deal called "${name}".`);
+      if (!canWrite) return back(ctx.demo ? 'Demo mode: connect Campfire to rename deals.' : 'Writing to Campfire is off (REKINDLE_WRITE).');
+      try {
+        await renameTag(deal.dealsTagId, name);
+      } catch (err) {
+        return back(`Campfire didn't rename the Deals tag: ${err.message}`);
+      }
+      await store.renameDeal(deal.dealsTagId, deal.dealsTag, name, user.email);
+      return redirect(res, `/deals?deal=${encodeURIComponent(name)}&renamed=1`);
+    }
+
+    // Delete: GET shows what's blocking it or asks to confirm; POST does it.
+    const blockers = await dealBlockers(deal, ctx, store);
+    if (req.method === 'GET' || form.get('confirm') !== 'yes' || blockers.length || !canWrite) {
+      return html(res, deleteDealPage(ctx, deal, { blockers, canWrite }), req.method === 'GET' ? 200 : 400);
+    }
+    try {
+      await retireTag(deal.dealsTagId);
+    } catch (err) {
+      return html(res, deleteDealPage(ctx, deal, { blockers: [`Campfire didn't remove the Deals tag: ${err.message}`], canWrite }), 400);
+    }
+    await store.deleteDeal(deal.dealsTagId, deal.dealsTag, user.email);
+    return redirect(res, `/deals?deleted=${encodeURIComponent(deal.dealsTag)}`);
+  }
+
   // ---- Saved allocations (Allocations tab)
   if (req.method === 'POST' && ['/allocations/save', '/allocations/change-split', '/allocations/delete'].includes(url.pathname)) {
     if (!user) return redirect(res, '/login');
@@ -1021,6 +1103,7 @@ async function handle(req, res) {
 
     if (url.pathname === '/allocations/delete') {
       if (current.deals.length) return page({ selected: id, flash: { ok: false, text: `Still used by ${current.deals.join(', ')}; change those deals first.` } });
+      if (current.usedAt) return page({ selected: id, flash: { ok: false, text: 'This allocation has split lines on invoices or reclass entries, so it is kept for the record.' } });
       await store.deleteAllocation(id, user.email);
       return redirect(res, '/allocations?deleted=1');
     }

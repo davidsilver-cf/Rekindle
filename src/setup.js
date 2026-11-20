@@ -72,7 +72,7 @@ export function effectiveConfig(base, { tags = null, setups = new Map(), owners 
   // Billing Group: a tag per deal, from the Billing Group tag group.
   for (const d of deals) d.billingGroup = groups.get(d.dealsTagId) || null;
   const billingGroups = (tags?.billingGroups || []).map((t) => ({ id: t.id, name: t.name })).sort((a, b) => a.name.localeCompare(b.name));
-  const savedAllocations = saved.map((a) => ({ id: Number(a.id), name: a.name, owners: a.owners, deals: deals.filter((d) => d.allocation && d.allocation.id === Number(a.id)).map((d) => d.dealsTag) }))
+  const savedAllocations = saved.map((a) => ({ id: Number(a.id), name: a.name, usedAt: a.usedAt || null, owners: a.owners, deals: deals.filter((d) => d.allocation && d.allocation.id === Number(a.id)).map((d) => d.dealsTag) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { ...base, deals, allocations, billbackCustomers: customers, billingGroups, savedAllocations, expensedTagIds };
 }

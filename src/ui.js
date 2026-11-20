@@ -431,7 +431,10 @@ export function dealsPage(ctx, selected, flash = null, draft = null) {
 <div class="split"><div class="card side" style="overflow:hidden"><div class="cardhead"><span class="small muted"><b>${deals.length} deals</b></span></div>${list}</div>
 <div class="wide" style="display:flex;flex-direction:column;gap:16px">
 <div class="card pad" style="flex-direction:row;flex-wrap:wrap;gap:32px">
-<div><span class="small muted">Deal</span><div style="font-size:20px;font-weight:700">${esc(deal.dealsTag)}</div></div>
+<div><span class="small muted">Deal</span><div style="font-size:20px;font-weight:700">${esc(deal.dealsTag)}</div>${ctx.admin ? `<details class="deal-actions" style="margin-top:6px"><summary class="small" style="cursor:pointer;color:var(--accent-dark)">Rename or delete</summary>
+<form method="post" action="/deals/rename" class="inline" style="gap:6px;margin-top:8px"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}"><input name="name" required maxlength="250" value="${esc(deal.dealsTag)}" aria-label="New deal name" style="min-height:32px;padding:0 8px;border:1px solid var(--field-line);border-radius:8px;font:inherit;font-size:13px;background:var(--surface);color:var(--ink);min-width:200px"><button class="btn sm" type="submit">Rename</button></form>
+<p class="small muted" style="margin:6px 0">Renames its Deals tag in Campfire too.</p>
+<a class="btn sm" href="/deals/delete?deal=${esc(deal.dealsTagId)}">Delete deal…</a></details>` : ''}</div>
 <div><span class="small muted">Billing type</span><div>${deal.billingType ? typePill(deal.billingType) : pill('Needs setup', 'background:var(--bad-tint);color:var(--bad)')}</div></div>
 <div><span class="small muted">Billing group</span><div>${billingGroupControl(ctx, deal)}</div></div>
 <div><span class="small muted">Setup</span><div class="small">${esc(SETUP_SOURCE[deal.source] || '')}</div></div>
@@ -1039,6 +1042,22 @@ ${flash && !flash.ok && flash.split ? `<div class="banner bad" role="alert">Not 
 <div><button class="btn primary" type="submit">Save new split</button></div></form>`;
 }
 
+// Delete a deal: what's stopping it, or a confirmation.
+export function deleteDealPage(ctx, deal, { blockers = [], canWrite = true } = {}) {
+  const back = `/deals?deal=${encodeURIComponent(deal.dealsTag)}`;
+  const body = blockers.length
+    ? `<div class="banner bad" role="alert"><b>${esc(deal.dealsTag)} can't be deleted:</b> transactions are booked to it.<ul style="margin:6px 0 0 18px">${blockers.map((b) => `<li>${esc(b)}</li>`).join('')}</ul></div>
+<p class="sub">A deal with history stays. If it's finished, leave it set up; nothing new is billed unless lines are coded to it.</p><div><a class="btn" href="${esc(back)}">Back to the deal</a></div>`
+    : !canWrite
+      ? `<div class="banner bad">${ctx.demo ? 'Demo mode: connect Campfire to delete deals.' : 'Writing to Campfire is off (REKINDLE_WRITE).'}</div><div><a class="btn" href="${esc(back)}">Back to the deal</a></div>`
+      : `<div class="card pad" style="gap:12px"><p style="margin:0">No bills, invoices or reclass entries use <b>${esc(deal.dealsTag)}</b>. Deleting it retires its Deals tag in Campfire (so AP can't pick it) and removes its setup, owners and approver here.</p>
+<form method="post" action="/deals/delete" style="display:flex;gap:8px;flex-wrap:wrap"><input type="hidden" name="deal" value="${esc(deal.dealsTagId)}"><button class="btn primary" type="submit" name="confirm" value="yes">Delete ${esc(deal.dealsTag)}</button><a class="btn" href="${esc(back)}">Cancel</a></form></div>`;
+  return layout({
+    active: 'deals', title: `Delete ${deal.dealsTag}`, ctx,
+    body: `<div><span class="small muted">Deals › ${esc(deal.dealsTag)}</span><h1 style="margin-top:6px">Delete deal</h1></div>${body}`,
+  });
+}
+
 // ---- Allocations tab: saved splits several Allocation deals can use.
 export function allocationsPage(ctx, { selected = null, creating = false, flash = null, draft = null } = {}) {
   const saved = ctx.config.savedAllocations || [];
@@ -1073,7 +1092,8 @@ ${draft && flash && !flash.ok ? '' : ''}
 ${splitsCard(pick.owners)}
 ${ctx.admin && pick.owners.length ? changeSplitForm(ctx, { action: '/allocations/change-split', field: 'id', id: pick.id }, pick.owners, flash) : ''}
 ${ctx.admin ? editor(pick) : ''}
-${ctx.admin && !pick.deals.length ? `<form method="post" action="/allocations/delete" class="card pad" style="flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap"><input type="hidden" name="id" value="${esc(pick.id)}"><span class="sub" style="margin:0;flex:1">Not used by any deal, so it can be deleted.</span><button class="btn" type="submit">Delete allocation</button></form>` : ''}`;
+${ctx.admin && pick.usedAt && !pick.deals.length ? '<div class="card pad"><p class="sub" style="margin:0">This allocation has split lines on invoices or reclass entries, so it can\'t be deleted; it\'s kept for the record.</p></div>' : ''}
+${ctx.admin && !pick.deals.length && !pick.usedAt ? `<form method="post" action="/allocations/delete" class="card pad" style="flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap"><input type="hidden" name="id" value="${esc(pick.id)}"><span class="sub" style="margin:0;flex:1">Not used by any deal, so it can be deleted.</span><button class="btn" type="submit">Delete allocation</button></form>` : ''}`;
   }
 
   return layout({
