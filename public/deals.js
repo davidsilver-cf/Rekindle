@@ -17,6 +17,12 @@
   function money(v) { var n = parseFloat(String(v || '').replace(/[$,\s]/g, '')); return n > 0 ? n : 0; }
   function round(n, d) { var f = Math.pow(10, d); return Math.round(n * f) / f; }
   function val(tr, suffix) { var el = tr.querySelector('[name$="_' + suffix + '"]'); return el ? el.value : ''; }
+  // $ amounts read as currency once you leave the field: 60000000 → $60,000,000.
+  function formatAmount(el) {
+    var n = money(el.value);
+    if (!String(el.value).trim()) return;
+    el.value = n ? '$' + n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }) : el.value;
+  }
 
   // rows(): the <tr>s; dated: whether rows carry their own start/end dates.
   function wire(container, rowsSel, totalEl, dated) {
@@ -29,15 +35,27 @@
         var pct = tr.querySelector('[name$="_percent"]');
         if (pct) pct.readOnly = byAmount;
       });
+      // A new owner with a $ amount but no Effective from date, while the
+      // other current owners have one, would count as "from the start": its
+      // share waits until it has a date, and it's left out of the others'.
+      list.forEach(function (tr) { tr.removeAttribute('data-needs-date'); });
+      if (dated && byAmount) {
+        list.forEach(function (tr) {
+          if (val(tr, 'start') || val(tr, 'end') || !money(val(tr, 'amount'))) return;
+          var datedOpen = list.some(function (o) { return o !== tr && val(o, 'start') && !val(o, 'end') && money(val(o, 'amount')); });
+          if (datedOpen) tr.setAttribute('data-needs-date', '');
+        });
+      }
       if (byAmount) {
         list.forEach(function (tr) {
           var pct = tr.querySelector('[name$="_percent"]');
           var a = money(val(tr, 'amount'));
           if (!pct) return;
-          if (!a) { pct.value = ''; return; }
+          if (!a || tr.hasAttribute('data-needs-date')) { pct.value = ''; return; }
           var on = dated ? (val(tr, 'start') || '') : '';
           var total = 0;
           list.forEach(function (o) {
+            if (o.hasAttribute('data-needs-date')) return;
             var s = dated ? val(o, 'start') : '', e = dated ? val(o, 'end') : '';
             var active = on === '' ? !s : (!s || s <= on) && (!e || e >= on);
             if (active) total += money(val(o, 'amount'));
@@ -45,6 +63,7 @@
           pct.value = total > 0 ? round((a / total) * 100, 4) : '';
         });
       }
+      var waiting = dated && byAmount && list.some(function (tr) { return tr.hasAttribute('data-needs-date'); });
       if (!totalEl) return;
       var sum = 0, n = 0, dollars = 0;
       list.forEach(function (tr) {
@@ -55,7 +74,8 @@
       sum = round(sum, 2);
       var ok = Math.abs(sum - 100) < 0.01;
       var lead = dated ? 'Active owners total ' : 'Total ';
-      totalEl.textContent = n ? lead + (byAmount ? '$' + dollars.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' = ' : '') + sum + '%' + (ok ? ' ✓' : ' (must be 100%)') : '';
+      totalEl.textContent = (n ? lead + (byAmount ? '$' + dollars.toLocaleString('en-US', { minimumFractionDigits: dollars % 1 ? 2 : 0, maximumFractionDigits: 2 }) + ' = ' : '') + sum + '%' + (ok ? ' ✓' : ' (must be 100%)') : '')
+        + (waiting ? (n ? ' · ' : '') + 'Enter an Effective from date on new owners to see their share.' : '');
       totalEl.style.color = n && !ok ? 'var(--bad)' : '';
     }
     function wireRow(tr) {
@@ -68,6 +88,11 @@
         el.addEventListener('input', refresh);
         el.addEventListener('change', refresh);
       });
+      var amt = tr.querySelector('[name$="_amount"]');
+      if (amt) {
+        amt.addEventListener('blur', function () { formatAmount(amt); });
+        formatAmount(amt);
+      }
     }
     rows().forEach(wireRow);
     var add = container.querySelector('.add-owner');

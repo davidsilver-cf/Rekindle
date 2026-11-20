@@ -342,7 +342,7 @@ export function ownersEditor(ctx, rows, { max = 20 } = {}) {
 <p class="sub" style="margin:8px 0 0">Enter a <b>$ amount</b> for every owner and Rekindle works out each share % from them; or leave $ blank and type the %. Leave dates blank for "from the start" and "still active". To change ownership later, use Change the split. Clear a row to remove it.</p>
 ${customers.length ? '' : '<div class="banner bad">No Billback Customer tags found in Campfire. Create one per customer first.</div>'}</div>`;
 }
-const plainAmount = (n) => (n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 }));
+const plainAmount = (n) => fmtAmount(n);
 const ownerFormRows = (owners) => owners.map((o) => ({ customerTagId: String(o.customer?.billbackTagId ?? ''), amount: plainAmount(o.amount), percent: String(o.percent), start: o.start || '', end: o.end || '' }));
 
 function setupForm(ctx, deal, owners, draft, flash = null) {
