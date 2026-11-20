@@ -121,7 +121,7 @@ const FLAME = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" style
 // Links to Campfire transactions. Inside Campfire they replace the Campfire
 // page (target _top); on Rekindle's own site they open a new tab.
 const CAMPFIRE_APP = () => (process.env.CAMPFIRE_APP_URL || 'https://app.meetcampfire.com').replace(/\/$/, '');
-const CF_PATHS = { invoice: '/v2/accounting/invoices/', je: '/v2/accounting/journal-entry/' };
+const CF_PATHS = { invoice: '/v2/accounting/invoices/', je: '/v2/accounting/journal-entry/', bill: '/v2/accounting/bills/' };
 export function cfLink(kind, id, text, embedded = false) {
   if (!id) return esc(text);
   return `<a href="${esc(CAMPFIRE_APP() + CF_PATHS[kind] + encodeURIComponent(id))}" target="${embedded ? '_top' : '_blank'}" rel="noopener" title="Open in Campfire">${esc(text)}</a>`;
@@ -264,7 +264,7 @@ export function queuePage(ctx, flash, requested = readFilters(new URLSearchParam
       const box = st === 'to_stamp' && canStamp
         ? `<input type="checkbox" name="line" value="${esc(l.lineId)}" form="stamp-form" class="pick" aria-label="Select line ${esc(l.lineId)}">`
         : `<input type="checkbox" disabled aria-label="Line ${esc(l.lineId)} cannot be stamped">`;
-      return `<tr><td class="check">${box}</td><td>${esc(l.billNumber)}</td><td class="muted">${esc(l.lineId)}</td><td class="wrap">${esc(l.description)}</td><td class="wrap">${esc(l.dealsTag ?? '—')}</td>
+      return `<tr><td class="check">${box}</td><td>${l.billId ? cfLink('bill', l.billId, l.billNumber, Boolean(ctx.embed)) : esc(l.billNumber)}</td><td class="muted">${esc(l.lineId)}</td><td class="wrap">${esc(l.description)}</td><td class="wrap">${esc(l.dealsTag ?? '—')}</td>
 <td>${typePill(l.billingType)}</td><td>${customerCell(l)}</td><td>${pill(STATES[st], STATE_STYLE[st])}</td><td class="num">${usd(l.amountCents)}</td></tr>`;
     })
     .join('');
@@ -903,7 +903,7 @@ export function reclassPage(ctx, flash = null) {
       ? `<input type="checkbox" class="pick" name="line" value="${esc(l.lineId)}" form="reclass-form" aria-label="Select line ${esc(l.lineId)}">`
       : '<input type="checkbox" disabled aria-label="Can\'t be reclassed yet">';
     const to = problem ? `<span class="no">${esc(problem)}</span>${ctx.admin ? ' <a href="/settings#reclass-accounts">Set</a>' : ''}` : esc(acct.account_label || `Account ${acct.account_id}`);
-    return `<tr><td class="check">${box}</td><td>${esc(l.billNumber)}<div class="small muted">${esc(l.vendorName || '')}</div></td><td class="wrap">${esc(l.description || '')}</td><td>${esc(l.dealsTag || '')}</td><td>${esc(l.rechargeCategory || '—')}</td>
+    return `<tr><td class="check">${box}</td><td>${l.billId ? cfLink('bill', l.billId, l.billNumber, Boolean(ctx.embed)) : esc(l.billNumber)}<div class="small muted">${esc(l.vendorName || '')}</div></td><td class="wrap">${esc(l.description || '')}</td><td>${esc(l.dealsTag || '')}</td><td>${esc(l.rechargeCategory || '—')}</td>
 <td class="wrap">${to}</td><td>${pill(l.status, l.status === 'To be expensed' ? 'background:var(--warn-tint);color:var(--warn)' : 'background:var(--hover);color:var(--nav-ink)')}</td><td class="num">${usd(reclassAmount(l))}${shareNote(l)}</td></tr>`;
   }).join('');
   let why = '';
