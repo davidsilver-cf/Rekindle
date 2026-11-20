@@ -24,6 +24,16 @@ Load allocation splits from a file instead of typing them on the Deals page, for
 
 **Status:** not started; wait for the go-ahead.
 
+### Rename the billback customer with the deal
+
+On **Rename**, an option "Also rename its billback customer" that renames the Campfire customer and its Billback Customer tag along with the Deals tag.
+
+**Why:** a deal created with **New company** is effectively one thing with its customer; renaming the deal today leaves the customer (and the invoice's "Bill to") on the old name.
+
+**Scope:** shown only for a Deal or Fund deal whose billback customer no other deal bills, so a shared fund customer can't be renamed by accident.
+
+**Status:** not started; worth it if the prospect creates many deals with New company. Until then, rename the customer and its Billback Customer tag in Campfire.
+
 ## Asks of Campfire
 
 Platform limits Rekindle works around today, to raise with Campfire's team.

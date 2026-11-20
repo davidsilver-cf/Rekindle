@@ -257,6 +257,7 @@ Inside Campfire's own records:
 | Can't delete a saved allocation | A deal still uses it: switch those deals to Own split or another allocation first (the allocation's page lists them). Or it has split lines that were invoiced or reclassed: it's kept for the record and can't be deleted |
 | **Delete deal**: "can't be deleted: transactions are booked to it" | Bills, invoices, open queue lines or Rekindle entries use the deal (the page lists them). A deal with history stays; leave it set up |
 | **Delete deal**: "Rekindle couldn't check Campfire for transactions" | Campfire refused or failed the bill/invoice lookup, so Rekindle won't delete without checking. Check the app's Bills and Invoices permissions (Step 3b) and try again |
+| Renamed a deal but the invoice still shows the old company name | Rename only renames the Deals tag. Rename the customer in Campfire **and** its Billback Customer tag (Tags): the PDF's "Bill to" uses the tag's name, the Campfire invoice uses the customer's |
 | **Rename** fails: "Campfire didn't rename the Deals tag" | The app can't edit tags (Tags permission, Step 3b), or writing is off (REKINDLE_WRITE) |
 | Owners total N%, not 100% | Correct the deal's owners or dates so they total 100% |
 | Not linked to a Campfire customer (Invoices) | Link the Billback Customer tag to its customer in Campfire |
