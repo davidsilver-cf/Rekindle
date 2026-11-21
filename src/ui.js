@@ -19,8 +19,8 @@ const pill = (text, style) => `<span class="pill" style="${style}">${esc(text)}<
 const typePill = (t) => (t ? pill(t, TYPE_STYLE[t] || TYPE_STYLE.Expense) : '');
 
 // Colors (same three choices as Forge): Light and Dark use Rekindle's own
-// (orange) on its own site and Campfire's (green) inside Campfire. Match
-// Campfire, the default, uses Campfire's colors everywhere (class "cf") and is
+// (orange) on its own site and Campfire's (green) inside Campfire. Auto,
+// the default, uses Campfire's colors everywhere (class "cf") and is
 // light or dark as Campfire says when it says (?theme=), else as the device is.
 const PALETTES = {
   light: '--ink:#1C1B19;--quiet:#5F5B55;--line:#E6E2DC;--soft:#EFECE7;--bg:#F7F5F2;--surface:#fff;--nav-ink:#3F3B36;--hover:#F1EEE9;--field-line:#D6D1C9;--accent:#C2410C;--accent-dark:#9A3412;--accent-tint:#FDECE3;--on-accent:#fff;--good:#166534;--good-tint:#E7F4EC;--warn:#854D0E;--warn-tint:#FEF6E0;--bad:#991B1B;--bad-tint:#FDECEC;--t-deal-bg:#E8EEF8;--t-deal:#1E3A8A;--t-fund-bg:#EEE8F6;--t-fund:#5B21B6;color-scheme:light',
@@ -136,8 +136,8 @@ export function linkBanner(ctx) {
 <details><summary class="small">New tab shows a security error?</summary><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span class="small">Copy this link into a new browser tab instead (it works for 10 minutes). If you can't sign in there, send it to a Rekindle admin to link you:</span><input id="link-url" readonly value="${esc(ctx.linkUrl)}" style="flex:1 1 260px;min-height:32px;padding:0 8px;border:1px solid var(--field-line);border-radius:6px;font:inherit;font-size:12px;background:var(--surface);color:var(--ink)"><button type="button" class="btn sm" data-copy-link="link-url">Copy link</button></div></details></div><script src="/static/link.js" defer></script>`;
 }
 
-// Light / Dark / Match Campfire (the same three as Forge); back = the page you're on.
-export const THEME_LABELS = { light: 'Light', dark: 'Dark', campfire: 'Match Campfire' };
+// Light / Dark / Auto (the same three as Forge); back = the page you're on.
+export const THEME_LABELS = { light: 'Light', dark: 'Dark', campfire: 'Auto' };
 const themeHref = (v, back) => `/theme?set=${v}&amp;back=${encodeURIComponent(back)}`;
 export function themeSwitch(current, back = '/') {
   const cur = THEME_LABELS[current] ? current : 'campfire';

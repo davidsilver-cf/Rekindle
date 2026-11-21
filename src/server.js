@@ -139,9 +139,9 @@ function send(res, status, body, type = 'text/plain; charset=utf-8', headers = {
   });
   res.end(typeof body === 'string' ? body : JSON.stringify(body, null, 2));
 }
-// Every page gets the person's choice on <html>: Match Campfire (the default)
+// Every page gets the person's choice on <html>: Auto (the default)
 // adds Campfire's colors (class "cf"); data-theme forces light or dark, from
-// Light/Dark or, under Match Campfire, from Campfire's ?theme= (none = the device).
+// Light/Dark or, under Auto, from Campfire's ?theme= (none = the device).
 const html = (res, body, status = 200) => {
   let b = String(body);
   if ((res.rekindleTheme || 'campfire') === 'campfire') b = b.replace('<html lang="en">', '<html lang="en" class="cf">');
@@ -418,10 +418,10 @@ async function handle(req, res) {
   await connectionLoaded();
   const embed = isEmbedded(req, url);
   const chosen = cookieValue(req, THEME_COOKIE);
-  res.rekindleTheme = THEMES.includes(chosen) ? chosen : 'campfire'; // an old "auto" counts as Match Campfire
+  res.rekindleTheme = THEMES.includes(chosen) ? chosen : 'campfire'; // an old "auto" cookie means Auto too
   res.rekindleMode = res.rekindleTheme === 'campfire' ? modeOf(url.searchParams.get('theme')) : res.rekindleTheme;
 
-  // Light / Dark / Match Campfire, remembered in a cookie. Harmless to follow as a link.
+  // Light / Dark / Auto, remembered in a cookie. Harmless to follow as a link.
   if (req.method === 'GET' && url.pathname === '/theme') {
     const set = url.searchParams.get('set');
     const back = url.searchParams.get('back') || '/';
