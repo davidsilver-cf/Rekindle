@@ -272,14 +272,17 @@ test("Campfire's context (user and workspace IDs, no email) signs people in on a
   process.env.REKINDLE_ADMINS = 'david@campfire.ai';
 });
 
-test('appearance: /theme remembers light or dark, auto clears it, and back must be a Rekindle path', async () => {
+test('appearance: /theme remembers light or dark, Match Campfire (the default) clears it, and back must be a Rekindle path', async () => {
   const r = await fetch(`${base}/theme?set=dark&back=/login`, { redirect: 'manual' });
   assert.equal(r.headers.get('location'), '/login');
   const cookie = cookieOf(r);
   assert.match(cookie, /rekindle_theme=dark/);
   assert.match(await (await fetch(`${base}/login`, { headers: { cookie } })).text(), /<html lang="en" data-theme="dark"/);
-  assert.match(await (await fetch(`${base}/login`)).text(), /<html lang="en"><head>/);
-  assert.equal((await fetch(`${base}/theme?set=auto&back=//evil.example`, { redirect: 'manual' })).headers.get('location'), '/');
+  assert.match(await (await fetch(`${base}/login`)).text(), /<html lang="en" class="cf"><head>/, 'Match Campfire by default');
+  assert.match(await (await fetch(`${base}/login?theme=dark`)).text(), /<html lang="en" data-theme="dark" class="cf"><head>/, "follows Campfire's ?theme=");
+  const cleared = await fetch(`${base}/theme?set=campfire&back=//evil.example`, { redirect: 'manual' });
+  assert.equal(cleared.headers.get('location'), '/');
+  assert.match(cleared.headers.get('set-cookie'), /Max-Age=0/);
 });
 
 test('Link my account: an unlinked Campfire user links once by signing in, then has their own rights inside Campfire', async () => {

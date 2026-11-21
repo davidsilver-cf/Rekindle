@@ -18,18 +18,19 @@ const TYPE_STYLE = {
 const pill = (text, style) => `<span class="pill" style="${style}">${esc(text)}</span>`;
 const typePill = (t) => (t ? pill(t, TYPE_STYLE[t] || TYPE_STYLE.Expense) : '');
 
-// Colors: Rekindle's own (orange) on its own site, Campfire's (green) when
-// shown inside Campfire; each light or dark. data-theme on <html> is set from
-// the person's choice; without one, the device's light/dark setting decides.
+// Colors (same three choices as Forge): Light and Dark use Rekindle's own
+// (orange) on its own site and Campfire's (green) inside Campfire. Match
+// Campfire, the default, uses Campfire's colors everywhere (class "cf") and is
+// light or dark as Campfire says when it says (?theme=), else as the device is.
 const PALETTES = {
   light: '--ink:#1C1B19;--quiet:#5F5B55;--line:#E6E2DC;--soft:#EFECE7;--bg:#F7F5F2;--surface:#fff;--nav-ink:#3F3B36;--hover:#F1EEE9;--field-line:#D6D1C9;--accent:#C2410C;--accent-dark:#9A3412;--accent-tint:#FDECE3;--on-accent:#fff;--good:#166534;--good-tint:#E7F4EC;--warn:#854D0E;--warn-tint:#FEF6E0;--bad:#991B1B;--bad-tint:#FDECEC;--t-deal-bg:#E8EEF8;--t-deal:#1E3A8A;--t-fund-bg:#EEE8F6;--t-fund:#5B21B6;color-scheme:light',
   dark: '--ink:#EDEAE6;--quiet:#A8A29B;--line:#3A3632;--soft:#2C2A27;--bg:#1A1917;--surface:#23211F;--nav-ink:#D6D1CA;--hover:#2E2B28;--field-line:#4A4540;--accent:#E0662A;--accent-dark:#FDBA8C;--accent-tint:#3B2418;--on-accent:#fff;--good:#7AD39F;--good-tint:#17301F;--warn:#F3C969;--warn-tint:#3A2F12;--bad:#F49A9A;--bad-tint:#3A1C1C;--t-deal-bg:#1C2A45;--t-deal:#A9C1F5;--t-fund-bg:#2A2141;--t-fund:#C9B3F5;color-scheme:dark',
   campfireLight: '--bg:#F6F7F5;--surface:#fff;--line:#E1E5E1;--soft:#ECEFEB;--hover:#EEF1EC;--accent:#4D6B1F;--accent-dark:#3B5317;--accent-tint:#ECF2E1;--on-accent:#fff',
   campfireDark: '--ink:#E9EEEA;--quiet:#9FAEA5;--line:#33433A;--soft:#26322C;--bg:#17201B;--surface:#1E2924;--nav-ink:#CFD8D2;--hover:#26332D;--field-line:#3D4E45;--accent:#8DB33A;--accent-dark:#B5D46A;--accent-tint:#2B3A1C;--on-accent:#10170F',
 };
-const THEMES = `:root{${PALETTES.light}}html.embedded{${PALETTES.campfireLight}}
-html[data-theme=dark]{${PALETTES.dark}}html.embedded[data-theme=dark]{${PALETTES.campfireDark}}
-@media (prefers-color-scheme:dark){html:not([data-theme=light]){${PALETTES.dark}}html.embedded:not([data-theme=light]){${PALETTES.campfireDark}}}`;
+const THEMES = `:root{${PALETTES.light}}html:is(.embedded,.cf){${PALETTES.campfireLight}}
+html[data-theme=dark]{${PALETTES.dark}}html:is(.embedded,.cf)[data-theme=dark]{${PALETTES.campfireDark}}
+@media (prefers-color-scheme:dark){html:not([data-theme=light]){${PALETTES.dark}}html:is(.embedded,.cf):not([data-theme=light]){${PALETTES.campfireDark}}}`;
 
 const CSS = `
 ${THEMES}
@@ -50,6 +51,7 @@ main{flex:999 1 560px;min-width:0;padding:32px 40px;display:flex;flex-direction:
 h1{margin:0;font-size:26px}h2{margin:0;font-size:16px}
 .sub{margin:6px 0 0;color:var(--quiet);font-size:14px}
 .head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
+.seg{display:inline-flex;border:1px solid var(--field-line);border-radius:10px;overflow:hidden;background:var(--surface)}.seg a{display:inline-flex;align-items:center;min-height:40px;padding:0 14px;color:var(--ink);text-decoration:none;font-weight:600;font-size:13px;border-left:1px solid var(--field-line)}.seg a:first-child{border-left:0}.seg a.on{background:var(--accent);color:var(--on-accent)}
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px}
 table.owners{table-layout:fixed;width:100%}table.owners th,table.owners td{padding-left:4px;padding-right:4px}
@@ -134,10 +136,18 @@ export function linkBanner(ctx) {
 <details><summary class="small">New tab shows a security error?</summary><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px"><span class="small">Copy this link into a new browser tab instead (it works for 10 minutes). If you can't sign in there, send it to a Rekindle admin to link you:</span><input id="link-url" readonly value="${esc(ctx.linkUrl)}" style="flex:1 1 260px;min-height:32px;padding:0 8px;border:1px solid var(--field-line);border-radius:6px;font:inherit;font-size:12px;background:var(--surface);color:var(--ink)"><button type="button" class="btn sm" data-copy-link="link-url">Copy link</button></div></details></div><script src="/static/link.js" defer></script>`;
 }
 
-// Light / Dark / Auto links; back = the page you're on.
+// Light / Dark / Match Campfire (the same three as Forge); back = the page you're on.
+export const THEME_LABELS = { light: 'Light', dark: 'Dark', campfire: 'Match Campfire' };
+const themeHref = (v, back) => `/theme?set=${v}&amp;back=${encodeURIComponent(back)}`;
 export function themeSwitch(current, back = '/') {
-  const opt = (v, label) => `<a href="/theme?set=${v}&amp;back=${encodeURIComponent(back)}"${(current || 'auto') === v ? ' aria-current="true" style="font-weight:700;color:var(--ink)"' : ''}>${label}</a>`;
-  return `<span class="theme-switch small muted" aria-label="Appearance">${opt('light', 'Light')} · ${opt('dark', 'Dark')} · ${opt('auto', 'Auto')}</span>`;
+  const cur = THEME_LABELS[current] ? current : 'campfire';
+  const opt = (v) => `<a href="${themeHref(v, back)}"${cur === v ? ' aria-current="true" style="font-weight:700;color:var(--ink)"' : ''}>${THEME_LABELS[v]}</a>`;
+  return `<span class="theme-switch small muted" aria-label="Appearance">${opt('light')} · ${opt('dark')} · ${opt('campfire')}</span>`;
+}
+// The segmented switch at the top of the Dashboard (as in Forge).
+export function themeSegmented(current, back = '/') {
+  const cur = THEME_LABELS[current] ? current : 'campfire';
+  return `<div class="seg" role="group" aria-label="Appearance">${Object.keys(THEME_LABELS).map((v) => `<a href="${themeHref(v, back)}"${cur === v ? ' class="on" aria-current="true"' : ''}>${THEME_LABELS[v]}</a>`).join('')}</div>`;
 }
 
 export function layout({ active, title, body, ctx, scripts = [] }) {

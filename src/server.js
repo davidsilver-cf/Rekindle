@@ -139,10 +139,18 @@ function send(res, status, body, type = 'text/plain; charset=utf-8', headers = {
   });
   res.end(typeof body === 'string' ? body : JSON.stringify(body, null, 2));
 }
-// Every page gets the person's light/dark choice on <html> (none = follow the device).
-const html = (res, body, status = 200) => send(res, status, res.rekindleTheme ? String(body).replace('<html lang="en"', `<html lang="en" data-theme="${res.rekindleTheme}"`) : body, 'text/html; charset=utf-8');
+// Every page gets the person's choice on <html>: Match Campfire (the default)
+// adds Campfire's colors (class "cf"); data-theme forces light or dark, from
+// Light/Dark or, under Match Campfire, from Campfire's ?theme= (none = the device).
+const html = (res, body, status = 200) => {
+  let b = String(body);
+  if ((res.rekindleTheme || 'campfire') === 'campfire') b = b.replace('<html lang="en">', '<html lang="en" class="cf">');
+  if (res.rekindleMode) b = b.replace('<html lang="en"', `<html lang="en" data-theme="${res.rekindleMode}"`);
+  return send(res, status, b, 'text/html; charset=utf-8');
+};
 const THEME_COOKIE = 'rekindle_theme';
-const THEMES = ['light', 'dark'];
+const THEMES = ['light', 'dark', 'campfire'];
+const modeOf = (v) => (v === 'light' || v === 'dark' ? v : null);
 const redirect = (res, to, headers = {}) => { res.writeHead(303, { Location: to, ...headers }); res.end(); };
 
 function readBody(req) {
@@ -409,17 +417,18 @@ async function handle(req, res) {
   let user = currentUser(req);
   await connectionLoaded();
   const embed = isEmbedded(req, url);
-  const theme = url.searchParams.get('theme') || cookieValue(req, THEME_COOKIE);
-  if (THEMES.includes(theme)) res.rekindleTheme = theme;
+  const chosen = cookieValue(req, THEME_COOKIE);
+  res.rekindleTheme = THEMES.includes(chosen) ? chosen : 'campfire'; // an old "auto" counts as Match Campfire
+  res.rekindleMode = res.rekindleTheme === 'campfire' ? modeOf(url.searchParams.get('theme')) : res.rekindleTheme;
 
-  // Light / Dark / Auto, remembered in a cookie. Harmless to follow as a link.
+  // Light / Dark / Match Campfire, remembered in a cookie. Harmless to follow as a link.
   if (req.method === 'GET' && url.pathname === '/theme') {
     const set = url.searchParams.get('set');
     const back = url.searchParams.get('back') || '/';
     const to = /^\/(?!\/)[^\s]*$/.test(back) ? back : '/';
     const https = req.headers['x-forwarded-proto'] === 'https';
     const attrs = `HttpOnly; Path=/; ${https ? `SameSite=None; Secure${req.headers['sec-fetch-dest'] === 'iframe' ? '; Partitioned' : ''}` : 'SameSite=Lax'}`;
-    const cookie = THEMES.includes(set) ? `${THEME_COOKIE}=${set}; ${attrs}; Max-Age=31536000` : `${THEME_COOKIE}=; ${attrs}; Max-Age=0`;
+    const cookie = set === 'light' || set === 'dark' ? `${THEME_COOKIE}=${set}; ${attrs}; Max-Age=31536000` : `${THEME_COOKIE}=; ${attrs}; Max-Age=0`;
     return redirect(res, to, { 'Set-Cookie': cookie });
   }
 

@@ -93,11 +93,12 @@ test('pages link the flame favicon', () => {
   assert.match(queuePage(ctx()), /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.svg">/);
 });
 
-test('themes: Campfire colors inside Campfire, light/dark from the choice, else the device', async () => {
+test('themes: Light / Dark / Match Campfire; Campfire colors inside Campfire', async () => {
   const { layout } = await import('../src/ui.js');
   const page = queuePage(ctx());
   assert.match(page, /html\[data-theme=dark\]\{--ink:#EDEAE6/);
-  assert.match(page, /html\.embedded\[data-theme=dark\]\{[^}]*--accent:#8DB33A/);
+  assert.match(page, /html:is\(\.embedded,\.cf\)\[data-theme=dark\]\{[^}]*--accent:#8DB33A/);
+  assert.match(page, /Match Campfire/);
   assert.match(page, /@media \(prefers-color-scheme:dark\)/);
   assert.match(page, /href="\/theme\?set=dark&amp;back=/);
   assert.match(queuePage({ ...ctx(), embed: true, theme: 'dark', path: '/?x=1' }), /set=light&amp;back=%2F%3Fx%3D1/);

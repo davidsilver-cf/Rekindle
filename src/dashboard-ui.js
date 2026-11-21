@@ -1,6 +1,6 @@
 // Dashboard screen: the whole firm, or one deal (?deal=). Bars are plain
 // HTML so they follow the light/dark and Campfire themes with no library.
-import { layout, esc, cfLink } from './ui.js';
+import { layout, esc, cfLink, themeSegmented } from './ui.js';
 import { AGING } from './dashboard.js';
 
 const usd = (cents) => (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -126,7 +126,7 @@ ${tableCard({ id: 'deal-invoices', title: 'Invoices', note: 'Amounts are this de
 
   return layout({
     active: 'dashboard', title: d.deal ? `Dashboard · ${d.deal}` : 'Dashboard', ctx, scripts: ['/static/dashboard.js'],
-    body: `${STYLE}<div class="head"><div><h1 class="title">${d.deal ? esc(d.deal) : 'Dashboard'}</h1><p class="sub">${d.deal ? `What's unbilled on ${esc(d.deal)}, and what's been invoiced and collected.` : 'What\'s unbilled and how old it is, and what\'s been invoiced and collected.'}</p></div>${picker}</div>${errBanner}${body}`,
+    body: `${STYLE}<div class="head"><div><h1 class="title">${d.deal ? esc(d.deal) : 'Dashboard'}</h1><p class="sub">${d.deal ? `What's unbilled on ${esc(d.deal)}, and what's been invoiced and collected.` : 'What\'s unbilled and how old it is, and what\'s been invoiced and collected.'}</p></div><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${themeSegmented(ctx.theme, ctx.path)}${picker}</div></div>${errBanner}${body}`,
   });
 }
 
